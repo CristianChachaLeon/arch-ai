@@ -76,7 +76,7 @@ mypy src/
 make run
 # or manually:
 source .venv/bin/activate
-uvicorn archai.http.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn src.archai.http.main:app --reload --host 0.0.0.0 --port 8000
 
 # Test health endpoint
 curl http://localhost:8000/health
