@@ -26,11 +26,28 @@ class JSONFormatter(logging.Formatter):
 
         # Add extra fields from record (excluding reserved LogRecord attributes)
         reserved_attrs = {
-            "name", "msg", "args", "created", "filename", "funcName",
-            "levelname", "levelno", "lineno", "module", "msecs",
-            "pathname", "process", "processName", "relativeCreated",
-            "thread", "threadName", "exc_info", "exc_text", "stack_info",
-            "message", "asctime",
+            "name",
+            "msg",
+            "args",
+            "created",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "module",
+            "msecs",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "thread",
+            "threadName",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "message",
+            "asctime",
         }
         for key, value in record.__dict__.items():
             if key not in reserved_attrs and not key.startswith("_"):
