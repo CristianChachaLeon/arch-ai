@@ -1,1 +1,40 @@
 .venv
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments (complementario)
+venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python package build/dist
+*.egg-info/
+dist/
+build/
+*.egg
+*.whl
+pip-log.txt
+pip-delete-this-directory.txt
+
+# uv (si usás uv)
+.no-link
+uv.lock
