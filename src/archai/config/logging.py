@@ -60,13 +60,13 @@ def setup_logging(level: str = "INFO") -> None:
     # Console handler for DEBUG and INFO (stdout)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(JSONFormatter())
-    console_handler.setLevel(logging.DEBUG)  # DEBUG, INFO pass through to stdout
+    console_handler.addFilter(lambda record: record.levelno < logging.WARNING)
     logger.addHandler(console_handler)
 
     # Error handler for WARNING and above (stderr)
     error_handler = logging.StreamHandler(sys.stderr)
     error_handler.setFormatter(JSONFormatter())
-    error_handler.setLevel(logging.WARNING)  # WARNING, ERROR, CRITICAL go to stderr
+    error_handler.setLevel(logging.WARNING)
     logger.addHandler(error_handler)
 
 
