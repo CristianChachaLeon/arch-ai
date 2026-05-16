@@ -52,20 +52,21 @@ def setup_logging(level: str = "INFO") -> None:
     """
     # Create root logger
     logger = logging.getLogger("archai")
-    logger.setLevel(getattr(logging, level.upper()))
+    logger.setLevel(level.upper())  # Python 3.4+ accepts strings directly
 
     # Remove existing handlers
     logger.handlers.clear()
 
-    # Console handler with JSON formatter
+    # Console handler for DEBUG and INFO (stdout)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(JSONFormatter())
+    console_handler.setLevel(logging.DEBUG)  # DEBUG, INFO pass through to stdout
     logger.addHandler(console_handler)
 
-    # Also log to stderr for errors
+    # Error handler for WARNING and above (stderr)
     error_handler = logging.StreamHandler(sys.stderr)
-    error_handler.setLevel(logging.ERROR)
     error_handler.setFormatter(JSONFormatter())
+    error_handler.setLevel(logging.WARNING)  # WARNING, ERROR, CRITICAL go to stderr
     logger.addHandler(error_handler)
 
 

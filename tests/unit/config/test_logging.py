@@ -181,3 +181,19 @@ class TestSetupLogging:
 
         logger = logging.getLogger("archai")
         assert len(logger.handlers) > 0
+
+    def test_setup_logging_accepts_valid_levels(self):
+        """setup_logging should accept valid log level strings."""
+        from archai.config.logging import setup_logging
+
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        for level in valid_levels:
+            # Should not raise
+            setup_logging(level)
+
+    def test_setup_logging_raises_on_invalid_level(self):
+        """setup_logging should raise ValueError for invalid levels."""
+        from archai.config.logging import setup_logging
+
+        with pytest.raises(ValueError):
+            setup_logging("INVALID_LEVEL")
