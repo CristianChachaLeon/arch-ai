@@ -1,17 +1,18 @@
-.PHONY: help setup install test test-cov format lint type-check clean run
+.PHONY: help setup install test test-cov format lint type-check clean run hooks
 
 help:
 	@echo "ArchAI - Available commands:"
 	@echo ""
-	@echo "  make setup      - Create virtual environment and install dependencies"
-	@echo "  make install   - Install dependencies (if venv already exists)"
-	@echo "  make test      - Run tests"
-	@echo "  make test-cov  - Run tests with coverage report"
-	@echo "  make format    - Format code with black and ruff"
-	@echo "  make lint      - Run ruff linter"
+	@echo "  make setup      - Create venv, install deps, and activate git hooks"
+	@echo "  make install    - Install Python dependencies only"
+	@echo "  make hooks      - Install pre-commit hooks (black + ruff on commit)"
+	@echo "  make test       - Run tests"
+	@echo "  make test-cov   - Run tests with coverage report"
+	@echo "  make format     - Format code with black and ruff"
+	@echo "  make lint       - Run ruff linter"
 	@echo "  make type-check - Run mypy type checker"
-	@echo "  make clean    - Remove cache files and coverage data"
-	@echo "  make run      - Run the FastAPI server"
+	@echo "  make clean      - Remove cache files and coverage data"
+	@echo "  make run        - Run the FastAPI server"
 	@echo ""
 	@echo "  source .venv/bin/activate  - Activate virtual environment"
 
@@ -24,9 +25,25 @@ setup:
 		.venv/bin/pip install -e ".[dev]" && \
 		echo "Setup complete! Activate with: source .venv/bin/activate"; \
 	fi
+	@$(MAKE) hooks
 
 install:
 	.venv/bin/pip install -e ".[dev]"
+
+hooks:
+	@if [ ! -d ".venv" ]; then \
+		echo "Creating virtual environment..."; \
+		python3 -m venv .venv; \
+	fi
+	@if command -v .venv/bin/pre-commit >/dev/null 2>&1; then \
+		.venv/bin/pre-commit install && \
+		echo "✅ pre-commit hooks installed (black + ruff on commit)"; \
+	else \
+		echo "installing pre-commit..."; \
+		.venv/bin/pip install pre-commit && \
+		.venv/bin/pre-commit install && \
+		echo "✅ pre-commit hooks installed (black + ruff on commit)"; \
+	fi
 
 test:
 	.venv/bin/pytest
