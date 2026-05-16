@@ -114,6 +114,31 @@ class TestJSONFormatter:
 
         assert "module" in data
 
+    def test_format_includes_extra_fields(self):
+        """JSON output should include extra fields passed to logger."""
+        from archai.config.logging import JSONFormatter
+
+        formatter = JSONFormatter()
+        record = logging.LogRecord(
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg="test message",
+            args=(),
+            exc_info=None,
+        )
+        # Simulate extra fields by adding them to the record's __dict__
+        # This is how Python logging stores extra= parameter
+        record.custom_field = "custom_value"
+        record.request_id = "req-123"
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert data["custom_field"] == "custom_value"
+        assert data["request_id"] == "req-123"
+
 
 class TestGetLogger:
     """Tests for get_logger function."""

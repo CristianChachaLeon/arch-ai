@@ -7,7 +7,7 @@ Provides structured JSON logging for better debugging and tracing.
 import logging
 import sys
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 
@@ -16,7 +16,7 @@ class JSONFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         log_data: dict[str, Any] = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "level": record.levelname,
             "message": record.getMessage(),
             "module": record.module,
@@ -24,9 +24,17 @@ class JSONFormatter(logging.Formatter):
             "line": record.lineno,
         }
 
-        # Add extra fields if present
-        if hasattr(record, "extra"):
-            log_data.update(record.extra)
+        # Add extra fields from record (excluding reserved LogRecord attributes)
+        reserved_attrs = {
+            "name", "msg", "args", "created", "filename", "funcName",
+            "levelname", "levelno", "lineno", "module", "msecs",
+            "pathname", "process", "processName", "relativeCreated",
+            "thread", "threadName", "exc_info", "exc_text", "stack_info",
+            "message", "asctime",
+        }
+        for key, value in record.__dict__.items():
+            if key not in reserved_attrs and not key.startswith("_"):
+                log_data[key] = value
 
         # Add exception info if present
         if record.exc_info:
