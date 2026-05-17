@@ -31,7 +31,7 @@ class TestAstParser:
         assert isinstance(tree, py_ast.Module)
 
     def test_parse_python_file_extracts_functions(self, tmp_path: Path):
-        """Should extract function definitions from the AST."""
+        """Should extract function definitions from the AST, including async functions."""
         # Arrange
         file_content = """
 def hello():
@@ -39,6 +39,12 @@ def hello():
 
 def world():
     return 42
+
+async def async_fetch():
+    pass
+
+async def async_process(data):
+    return data
 """
         file_path = self.create_python_file(tmp_path, "functions.py", file_content)
 
@@ -49,6 +55,8 @@ def world():
         # Assert
         assert "hello" in functions
         assert "world" in functions
+        assert "async_fetch" in functions
+        assert "async_process" in functions
 
     def test_parse_python_file_extracts_classes(self, tmp_path: Path):
         """Should extract class definitions from the AST."""
@@ -91,6 +99,29 @@ from typing import List, Dict
         assert "pathlib.Path" in imports
         assert "typing.List" in imports
         assert "typing.Dict" in imports
+
+    def test_parse_python_file_extracts_relative_imports(self, tmp_path: Path):
+        """Should extract relative import statements with correct prefix dots."""
+        # Arrange
+        file_content = """
+from . import x
+from .foo import bar
+from .. import y
+from ..sibling import func
+from ...pkg import z
+"""
+        file_path = self.create_python_file(tmp_path, "relative_imports.py", file_content)
+
+        # Act
+        tree = parse_python_file(file_path)
+        imports = get_imports(tree)
+
+        # Assert - verify relative import depth is preserved
+        assert ".x" in imports
+        assert ".foo.bar" in imports
+        assert "..y" in imports
+        assert "..sibling.func" in imports
+        assert "...pkg.z" in imports
 
     def test_parse_python_file_with_syntax_error(self, tmp_path: Path):
         """Should raise SyntaxError for invalid Python code."""

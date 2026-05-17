@@ -5,6 +5,7 @@ Future versions can integrate tree-sitter for faster parsing and multi-language 
 """
 
 import ast
+import tokenize
 from pathlib import Path
 
 
@@ -22,7 +23,8 @@ def parse_python_file(file_path: Path) -> ast.AST:
         SyntaxError: If the file contains invalid Python syntax.
         FileNotFoundError: If the file does not exist.
     """
-    code = file_path.read_text()
+    with tokenize.open(file_path) as f:
+        code = f.read()
     if not code.strip():
         # Return an empty Module for empty files
         return ast.Module(body=[], type_ignores=[])
@@ -47,12 +49,12 @@ def get_imports(tree: ast.AST) -> list[str]:
             for alias in node.names:
                 imports.append(alias.name)
         elif isinstance(node, ast.ImportFrom):
-            module = node.module or ""
+            rel_prefix = "." * node.level
             for alias in node.names:
-                if module:
-                    imports.append(f"{module}.{alias.name}")
+                if node.module:
+                    imports.append(f"{rel_prefix}{node.module}.{alias.name}")
                 else:
-                    imports.append(alias.name)
+                    imports.append(f"{rel_prefix}{alias.name}")
 
     return imports
 
@@ -70,7 +72,7 @@ def get_functions(tree: ast.AST) -> list[str]:
     functions = []
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             functions.append(node.name)
 
     return functions
