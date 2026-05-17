@@ -17,7 +17,6 @@ EXCLUDED_DIRS = {
     "node_modules",
     ".git",
     ".tox",
-    ".egg-info",
     "dist",
     "build",
 }
@@ -39,8 +38,18 @@ def discover_python_files(repo_path: Path) -> list[Path]:
     python_files = []
 
     for path in repo_path.rglob("*.py"):
-        # Skip excluded directories
-        if any(excluded in path.parts for excluded in EXCLUDED_DIRS):
+        # Skip symlinks to avoid circular references
+        if path.is_symlink() or any(
+            parent.is_symlink() for parent in path.parents if parent != repo_path
+        ):
+            continue
+
+        # Skip excluded directories (exact match or .egg-info/.dist-info suffixes)
+        if any(
+            excluded in path.parts or part.endswith(".egg-info") or part.endswith(".dist-info")
+            for part in path.parts
+            for excluded in EXCLUDED_DIRS
+        ):
             continue
 
         # Skip files starting with underscore (except __init__.py)
