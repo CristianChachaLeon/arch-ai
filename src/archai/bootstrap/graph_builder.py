@@ -1,7 +1,6 @@
 """Graph Builder - Build NetworkX graph from parsed file metadata.
 
 This module only constructs the graph. Parsing is done by ast_parser.
-SRP: This module has ONE responsibility - build the graph from FileNode data.
 """
 
 import networkx as nx
@@ -9,7 +8,14 @@ from typing import List, Dict
 
 
 class FileNode:
-    """Represents a file node in the graph with its metadata."""
+    """Represents a file node in the graph with its metadata.
+
+    Attributes:
+        path: Relative path from repo root (e.g., "src/archai/bootstrap/__init__.py")
+        imports: List of resolved import paths relative to repo root
+        functions: List of function names defined in this file
+        classes: List of class names defined in this file
+    """
 
     def __init__(
         self,
@@ -18,10 +24,16 @@ class FileNode:
         functions: List[str] = None,
         classes: List[str] = None,
     ):
-        self.path = path
+        # Normalize path to use forward slashes
+        self.path = path.replace("\\", "/")
         self.imports = imports or []
         self.functions = functions or []
         self.classes = classes or []
+
+    @property
+    def filename(self) -> str:
+        """Return just the filename (e.g., '__init__.py')"""
+        return self.path.split("/")[-1]
 
 
 class FileGraph:
@@ -42,20 +54,6 @@ class FileGraph:
         """Add a file node to the graph."""
         self._nodes[node.path] = node
         self.graph.add_node(node.path)
-
-
-def _resolve_import_to_filename(import_name: str) -> str:
-    """Resolve an import name to a filename."""
-    # Handle relative imports (starts with .)
-    if import_name.startswith("."):
-        # Extract module name after dots
-        module = import_name.lstrip(".")
-        if module:
-            return f"{module.split('.')[0]}.py"
-        return "__init__.py"
-
-    # Handle absolute imports - just use the module name as filename
-    return f"{import_name.split('.')[0]}.py"
 
 
 def build_graph(file_nodes: List[FileNode]) -> FileGraph:
@@ -81,13 +79,13 @@ def build_graph(file_nodes: List[FileNode]) -> FileGraph:
     for node in file_nodes:
         file_graph.add_node(node)
 
-    # Create edges based on import relationships
+    # Create edges based on resolved import relationships
+    # NOTE: imports should already be resolved to relative file paths
+    # by dependency_resolver before calling build_graph
     for node in file_nodes:
         for imp in node.imports:
-            target_filename = _resolve_import_to_filename(imp)
-
-            # Check if target exists in our graph
-            if target_filename in files_by_name:
-                graph.add_edge(node.path, target_filename)
+            # Skip self-imports and unresolved imports
+            if imp != node.path and imp in files_by_name:
+                graph.add_edge(node.path, imp)
 
     return file_graph

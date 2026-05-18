@@ -79,19 +79,19 @@ LLM / Agent
 Input:  /path/to/repo
 Output: Graph data structure
 
-Workflow:
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  File       │     │   AST       │     │   Graph     │
-│  Discovery  │────▶│  Parsing    │────▶│  Building   │
-│  (walk dir) │     │(tree-sitter)│     │  (NetworkX) │
-└─────────────┘     └─────────────┘     └─────────────┘
+Workflow (SRP - each module has one responsibility):
+┌─────────────┐     ┌─────────────┐     ┌────────────────┐     ┌─────────────┐
+│  File       │     │   AST       │     │  Dependency    │     │   Graph     │
+│  Discovery  │────▶│  Parsing    │────▶│  Resolution    │────▶│  Building   │
+│  (walk dir) │     │(ast module) │     │ (resolve names)│     │ (NetworkX)  │
+└─────────────┘     └─────────────┘     └────────────────┘     └─────────────┘
 ```
 
-**Modules**:
-- `file_discovery.py` - Walk directory, filter by extension
-- `ast_parser.py` - Parse Python files with tree-sitter
-- `graph_builder.py` - Build NetworkX graph from AST
-- `dependency_resolver.py` - Resolve imports to absolute paths
+**Modules** (each follows SRP):
+- `file_discovery.py` - Walk directory, filter by extension (.py)
+- `ast_parser.py` - Parse Python files, extract imports/functions/classes from AST
+- `dependency_resolver.py` - Resolve raw imports to filenames (e.g., "utils.helpers" → "helpers.py")
+- `graph_builder.py` - Build NetworkX graph from resolved FileNodes only (no parsing)
 
 #### 2.2.2 Semantic + Architectural Inference Engine
 
@@ -268,16 +268,16 @@ Workflow:
 
 ```python
 class FileNode:
-    path: str
-    language: str
-    imports: List[str]
-    exports: List[str]
-    functions: List[str]
-    classes: List[str]
+    """Metadata for a single file in the repository."""
+    path: str           # filename (e.g., "main.py")
+    imports: List[str]  # resolved imports as filenames (e.g., ["helpers.py", "user.py"])
+    functions: List[str]  # function names defined in the file
+    classes: List[str]    # class names defined in the file
 
 class FileGraph:
-    nodes: Dict[str, FileNode]
-    edges: List[DependencyEdge]  # from -> to, type: import
+    """NetworkX graph wrapper with file metadata."""
+    graph: nx.DiGraph    # NetworkX directed graph with edges
+    _nodes: Dict[str, FileNode]  # metadata lookup by filename
 ```
 
 ### 3.2 ArchitectureModel
