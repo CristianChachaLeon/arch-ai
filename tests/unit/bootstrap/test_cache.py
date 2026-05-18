@@ -7,6 +7,8 @@ import os
 import tempfile
 from pathlib import Path
 
+
+from archai.bootstrap import cache
 from archai.bootstrap.cache import (
     get_cache_path,
     compute_repo_hash,
@@ -99,86 +101,120 @@ class TestComputeRepoHash:
 
             assert hash1 == hash2
 
+    def test_compute_repo_hash_differs_for_renamed_file(self):
+        """Should return different hash when file is renamed (path-only change)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            file1 = Path(tmpdir) / "old_name.py"
+            file1.write_text("import os")
+
+            hash1 = compute_repo_hash(tmpdir)
+
+            file2 = Path(tmpdir) / "new_name.py"
+            file2.write_text("import os")
+
+            hash2 = compute_repo_hash(tmpdir)
+
+            assert hash1 != hash2
+
 
 class TestCacheExists:
     """Test suite for cache existence check."""
 
-    def test_cache_exists_returns_false_when_not_cached(self):
+    def test_cache_exists_returns_false_when_not_cached(self, tmp_path, monkeypatch):
         """Should return False when no cache exists."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            assert cache_exists(tmpdir) is False
+        monkeypatch.setattr(cache, "CACHE_DIR", tmp_path / ".archai" / "cache")
+        assert cache_exists(str(tmp_path)) is False
 
-    def test_cache_exists_returns_true_when_cached(self):
+    def test_cache_exists_returns_true_when_cached(self, tmp_path, monkeypatch):
         """Should return True when cache file exists."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cache_file = get_cache_path(tmpdir)
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_bytes(b"mock cache data")
+        monkeypatch.setattr(cache, "CACHE_DIR", tmp_path / ".archai" / "cache")
+        cache_file = get_cache_path(str(tmp_path))
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text("{}")
 
-            assert cache_exists(tmpdir) is True
+        assert cache_exists(str(tmp_path)) is True
 
 
 class TestSaveAndLoadCache:
     """Test suite for cache save and load operations."""
 
-    def test_save_and_load_cache_roundtrip(self):
+    def test_save_and_load_cache_roundtrip(self, tmp_path, monkeypatch):
         """Should save and load FileGraph correctly."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            from archai.bootstrap.graph_builder import FileNode, build_graph
+        monkeypatch.setattr(cache, "CACHE_DIR", tmp_path / ".archai" / "cache")
+        from archai.bootstrap.graph_builder import FileNode, build_graph
 
-            file_nodes = [
-                FileNode(path="main.py", imports=["utils.py"], functions=["main"], classes=[]),
-                FileNode(path="utils.py", imports=[], functions=["helper"], classes=[]),
-            ]
-            graph = build_graph(file_nodes)
+        file_nodes = [
+            FileNode(path="main.py", imports=["utils.py"], functions=["main"], classes=[]),
+            FileNode(path="utils.py", imports=[], functions=["helper"], classes=[]),
+        ]
+        graph = build_graph(file_nodes)
 
-            save_cache(tmpdir, graph)
+        save_cache(str(tmp_path), graph)
 
-            loaded = load_cache(tmpdir)
+        loaded = load_cache(str(tmp_path))
 
-            assert loaded is not None
-            assert loaded.graph.number_of_nodes() == 2
+        assert loaded is not None
+        assert loaded.graph.number_of_nodes() == 2
 
-    def test_load_cache_returns_none_when_no_cache(self):
+    def test_load_cache_returns_none_when_no_cache(self, tmp_path, monkeypatch):
         """Should return None when no cache exists."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            result = load_cache(tmpdir)
-            assert result is None
+        monkeypatch.setattr(cache, "CACHE_DIR", tmp_path / ".archai" / "cache")
+        result = load_cache(str(tmp_path))
+        assert result is None
 
 
 class TestCacheInvalidation:
     """Test suite for cache invalidation based on hash."""
 
-    def test_cache_invalidates_on_file_change(self):
+    def test_cache_invalidates_on_file_change(self, tmp_path, monkeypatch):
         """Should detect that cache is stale when files change."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            from archai.bootstrap.graph_builder import FileNode, build_graph
+        monkeypatch.setattr(cache, "CACHE_DIR", tmp_path / ".archai" / "cache")
+        from archai.bootstrap.graph_builder import FileNode, build_graph
 
-            file1 = Path(tmpdir) / "main.py"
-            file1.write_text("import os\n")
+        file1 = Path(tmp_path) / "main.py"
+        file1.write_text("import os\n")
 
-            file_nodes = [FileNode(path="main.py", imports=["os"], functions=[], classes=[])]
-            graph = build_graph(file_nodes)
+        file_nodes = [FileNode(path="main.py", imports=["os"], functions=[], classes=[])]
+        graph = build_graph(file_nodes)
 
-            save_cache(tmpdir, graph)
+        save_cache(str(tmp_path), graph)
 
-            file1.write_text("import sys\n")
+        file1.write_text("import sys\n")
 
-            loaded = load_cache(tmpdir)
-            assert loaded is None
+        loaded = load_cache(str(tmp_path))
+        assert loaded is None
 
-    def test_invalidate_cache_removes_cache_file(self):
+    def test_invalidate_cache_removes_cache_file(self, tmp_path, monkeypatch):
         """Should remove cache file when invalidated."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            from archai.bootstrap.graph_builder import FileNode, build_graph
+        monkeypatch.setattr(cache, "CACHE_DIR", tmp_path / ".archai" / "cache")
+        from archai.bootstrap.graph_builder import FileNode, build_graph
 
-            file_nodes = [FileNode(path="main.py", imports=[], functions=[], classes=[])]
-            graph = build_graph(file_nodes)
+        file_nodes = [FileNode(path="main.py", imports=[], functions=[], classes=[])]
+        graph = build_graph(file_nodes)
 
-            save_cache(tmpdir, graph)
+        save_cache(str(tmp_path), graph)
 
-            assert cache_exists(tmpdir)
+        assert cache_exists(str(tmp_path))
 
-            invalidate_cache(tmpdir)
+        invalidate_cache(str(tmp_path))
 
-            assert cache_exists(tmpdir) is False
+        assert cache_exists(str(tmp_path)) is False
+
+    def test_cache_invalidates_on_file_rename(self, tmp_path, monkeypatch):
+        """Should detect that cache is stale when files are renamed."""
+        monkeypatch.setattr(cache, "CACHE_DIR", tmp_path / ".archai" / "cache")
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+
+        file1 = Path(tmp_path) / "main.py"
+        file1.write_text("import os\n")
+
+        file_nodes = [FileNode(path="main.py", imports=[], functions=[], classes=[])]
+        graph = build_graph(file_nodes)
+
+        save_cache(str(tmp_path), graph)
+
+        file2 = Path(tmp_path) / "renamed_main.py"
+        file1.rename(file2)
+
+        loaded = load_cache(str(tmp_path))
+        assert loaded is None

@@ -5,14 +5,69 @@ Invalidation is based on SHA256 hash of Python file contents.
 """
 
 import hashlib
-import pickle
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from archai.bootstrap.graph_builder import FileGraph
 
 
 CACHE_DIR = Path.home() / ".archai" / "cache"
+
+
+def _serialize_graph(graph: FileGraph) -> dict[str, Any]:
+    """Serialize FileGraph to JSON-serializable dict."""
+    return {
+        "graph": {
+            "nodes": [
+                {
+                    "path": node.path,
+                    "imports": node.imports,
+                    "functions": node.functions,
+                    "classes": node.classes,
+                }
+                for node in graph._nodes.values()
+            ],
+            "edges": list(graph.graph.edges),
+        },
+        "metadata": {
+            "node_count": graph.graph.number_of_nodes(),
+            "edge_count": len(graph.graph.edges),
+        },
+    }
+
+
+def _deserialize_graph(data: dict[str, Any]) -> FileGraph:
+    """Deserialize JSON dict to FileGraph with schema validation."""
+    if not isinstance(data, dict):
+        raise ValueError("Invalid cache data: not a dict")
+
+    if "graph" not in data or "metadata" not in data:
+        raise ValueError("Invalid cache data: missing required keys")
+
+    from archai.bootstrap.graph_builder import FileNode, build_graph
+
+    nodes_data = data["graph"].get("nodes", [])
+    if not isinstance(nodes_data, list):
+        raise ValueError("Invalid cache data: nodes must be a list")
+
+    file_nodes = []
+    for node_data in nodes_data:
+        if not isinstance(node_data, dict):
+            raise ValueError("Invalid cache data: node must be a dict")
+        if "path" not in node_data:
+            raise ValueError("Invalid cache data: node missing path")
+
+        file_nodes.append(
+            FileNode(
+                path=node_data["path"],
+                imports=node_data.get("imports", []),
+                functions=node_data.get("functions", []),
+                classes=node_data.get("classes", []),
+            )
+        )
+
+    return build_graph(file_nodes)
 
 
 def get_cache_path(repo_path: str) -> Path:
@@ -47,7 +102,9 @@ def compute_repo_hash(repo_path: str) -> str:
 
     for py_file in py_files:
         try:
+            rel_path = py_file.relative_to(repo).as_posix()
             content = py_file.read_bytes()
+            hash_obj.update(rel_path.encode("utf-8"))
             hash_obj.update(content)
         except (OSError, PermissionError):
             continue
@@ -82,11 +139,11 @@ def save_cache(repo_path: str, graph: FileGraph) -> None:
 
     cache_data = {
         "repo_hash": repo_hash,
-        "graph": graph,
+        "graph": _serialize_graph(graph),
     }
 
-    with open(cache_file, "wb") as f:
-        pickle.dump(cache_data, f)
+    with open(cache_file, "w", encoding="utf-8") as f:
+        json.dump(cache_data, f)
 
 
 def load_cache(repo_path: str) -> Optional[FileGraph]:
@@ -104,9 +161,9 @@ def load_cache(repo_path: str) -> Optional[FileGraph]:
         return None
 
     try:
-        with open(cache_file, "rb") as f:
-            cache_data = pickle.load(f)
-    except (pickle.UnpicklingError, OSError):
+        with open(cache_file, "r", encoding="utf-8") as f:
+            cache_data = json.load(f)
+    except (json.JSONDecodeError, OSError, EOFError):
         return None
 
     stored_hash = cache_data.get("repo_hash")
@@ -115,7 +172,10 @@ def load_cache(repo_path: str) -> Optional[FileGraph]:
     if stored_hash != current_hash:
         return None
 
-    return cache_data.get("graph")
+    try:
+        return _deserialize_graph(cache_data.get("graph", {}))
+    except (ValueError, KeyError):
+        return None
 
 
 def invalidate_cache(repo_path: str) -> None:
