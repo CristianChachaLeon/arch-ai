@@ -55,16 +55,21 @@ class TestClustering:
 
         app_cluster = None
         service_cluster = None
+        other_cluster = None
 
         for cluster_name, files in clusters.items():
             if "app.py" in files:
                 app_cluster = cluster_name
             if "service.py" in files:
                 service_cluster = cluster_name
+            if "other.py" in files:
+                other_cluster = cluster_name
 
         assert app_cluster is not None
         assert service_cluster is not None
         assert app_cluster == service_cluster
+        assert other_cluster != app_cluster
+        assert other_cluster != service_cluster
 
     def test_cluster_by_call_density(self):
         """Files that call each other should be in same cluster."""
@@ -141,5 +146,7 @@ class TestClustering:
 
         clusters = cluster_files(graph)
 
-        api_files = [f for f in sum(clusters.values(), []) if f.startswith("src/api/")]
-        assert len(api_files) >= 3
+        api_clusters = [
+            files for files in clusters.values() if all(f.startswith("src/api/") for f in files)
+        ]
+        assert any(len(cluster) >= 3 for cluster in api_clusters)

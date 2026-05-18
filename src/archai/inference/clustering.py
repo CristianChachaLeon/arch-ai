@@ -7,6 +7,7 @@ This module implements three clustering signals:
 """
 
 import networkx as nx
+from networkx.algorithms.community import greedy_modularity_communities
 from typing import Dict, List
 
 from archai.bootstrap.graph_builder import FileGraph
@@ -52,7 +53,7 @@ def cluster_files(graph: FileGraph) -> Dict[str, List[str]]:
             if weight > 0:
                 temp_graph.add_edge(node_a, node_b, weight=weight)
 
-    for component in nx.connected_components(temp_graph):
+    for component in greedy_modularity_communities(temp_graph, weight="weight"):
         cluster_id = f"cluster_{len(clusters) + 1}"
         cluster_files = sorted(list(component))
         clusters[cluster_id] = cluster_files
@@ -111,13 +112,12 @@ def _compute_edge_weight(
     imports_b = shared_imports.get(node_b, set())
     shared = imports_a & imports_b
     if shared:
-        weight += 2 * min(len(shared), 2)
+        weight += 2 * len(shared)
 
     pair = tuple(sorted([node_a, node_b]))
     if pair in bidirectional:
         weight += 4
-
-    if node_a in imports_b or node_b in imports_a:
+    elif node_a in imports_b or node_b in imports_a:
         weight += 1
 
     return weight
