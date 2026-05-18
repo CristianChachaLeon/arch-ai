@@ -14,7 +14,6 @@ class TestFileDiscovery:
         (tmp_path / "sub" / "deep").mkdir()
         (tmp_path / "sub" / "deep" / "nested.py").touch()
 
-        # Act: call function that doesn't exist yet
         from archai.bootstrap import file_discovery
 
         result = file_discovery.discover_python_files(tmp_path)
