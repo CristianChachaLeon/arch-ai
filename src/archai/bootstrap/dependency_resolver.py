@@ -25,7 +25,7 @@ STDLIB_MODULES = {
     "itertools",
     "functools",
     "operator",
-    " pathlib",
+    "pathlib",
     "typing",
     "copy",
     "io",
@@ -88,7 +88,7 @@ STDLIB_MODULES = {
     "gettext",
     "optparse",
     "getopt",
-    " warnings",
+    "warnings",
     "contextlib",
     "abc",
     "atexit",
@@ -97,7 +97,6 @@ STDLIB_MODULES = {
     "codeop",
     "contextvars",
     "dataclasses",
-    "typing",
     "collections.abc",
     "typing_extensions",
     # Common third-party that might conflict
@@ -116,12 +115,19 @@ def _is_stdlib_module(module_name: str) -> bool:
     return first_part in STDLIB_MODULES
 
 
-def _resolve_single_import(import_name: str, files_by_stem: Dict[str, str]) -> str:
+def _resolve_single_import(
+    import_name: str,
+    files_by_stem: Dict[str, str],
+    files_by_module: Dict[str, str],
+    importer_path: str = "",
+) -> str:
     """Resolve a single import name to a relative path.
 
     Args:
         import_name: The import string (e.g., "utils.helpers", "os")
         files_by_stem: Dict mapping file stem (without extension) -> relative path
+        files_by_module: Dict mapping dotted module path -> relative file path
+        importer_path: The path of the file doing the import (for relative import resolution)
 
     Returns:
         The resolved relative path or empty string if not found.
@@ -132,35 +138,68 @@ def _resolve_single_import(import_name: str, files_by_stem: Dict[str, str]) -> s
 
     # Handle relative imports (starts with .)
     if import_name.startswith("."):
-        module = import_name.lstrip(".")
-        if module:
-            parts = module.split(".")
-            # Try most specific first
+        level = len(import_name) - len(import_name.lstrip("."))
+        module_part = import_name.lstrip(".")
+
+        if importer_path:
+            current_dir = str(Path(importer_path).parent)
+        else:
+            current_dir = ""
+
+        for _ in range(level - 1):
+            if current_dir:
+                current_dir = str(Path(current_dir).parent)
+
+        available_paths = set(files_by_stem.values())
+
+        if module_part:
+            parts = module_part.split(".")
+
+            # Strategy 1: Try exact relative paths (most to least specific)
+            # e.g., "models.user" from "src/services/" -> "src/models/user.py"
             for i in range(len(parts), 0, -1):
-                stem = parts[i - 1]
-                if stem in files_by_stem:
-                    return files_by_stem[stem]
-            # Fallback to first part
-            stem = parts[0]
-            if stem in files_by_stem:
-                return files_by_stem[stem]
-            return f"{stem}/__init__.py"
-        # Relative import without module = __init__.py
-        return "__init__.py"
+                rel = "/".join(parts[:i])
+                candidate = f"{current_dir}/{rel}.py" if current_dir else f"{rel}.py"
+                candidate = candidate.lstrip("/")
+                if candidate in available_paths:
+                    return candidate
+
+            # Strategy 2: Try __init__.py
+            for i in range(len(parts), 0, -1):
+                rel = "/".join(parts[:i])
+                candidate = (
+                    f"{current_dir}/{rel}/__init__.py" if current_dir else f"{rel}/__init__.py"
+                )
+                candidate = candidate.lstrip("/")
+                if candidate in available_paths:
+                    return candidate
+
+            # Strategy 3: Fallback to global stem lookup
+            for i in range(len(parts), 0, -1):
+                if parts[i - 1] in files_by_stem:
+                    return files_by_stem[parts[i - 1]]
+
+            return ""
+
+        # Just dots (from ., from ..) = __init__.py in target directory
+        init_candidate = f"{current_dir}/__init__.py" if current_dir else "__init__.py"
+        return init_candidate
 
     # Handle absolute imports like "utils.helpers", "os", "dataclasses.dataclass"
     parts = import_name.split(".")
 
-    # Strategy: Try to find by stem matching
-    # e.g., "archai.bootstrap.graph_builder" -> try "graph_builder"
+    # Strategy 1: Try exact dotted-module match (full path first, then shorter)
+    # e.g., "pkg_a.utils.helper" -> try "pkg_a.utils.helper", then "pkg_a.utils", then "pkg_a"
+    # This avoids stem collisions when different packages have same module names
+    for i in range(len(parts), 0, -1):
+        dotted = ".".join(parts[:i])
+        if dotted in files_by_module:
+            return files_by_module[dotted]
+
+    # Strategy 2: Fallback to stem lookup (last resort)
     for stem in reversed(parts):
         if stem in files_by_stem:
             return files_by_stem[stem]
-
-    # Fallback: first part
-    stem = parts[0]
-    if stem in files_by_stem:
-        return files_by_stem[stem]
 
     return ""
 
@@ -200,6 +239,24 @@ def resolve_imports(file_nodes: List[FileNode]) -> List[FileNode]:
         ):
             files_by_stem[stem] = node.path
 
+    # Build lookup by full dotted module path (for exact prefix matching)
+    # e.g., "src.pkg_a.utils.helper" -> "src/pkg_a/utils/helper.py"
+    # and its suffixes like "pkg_a.utils.helper", "utils.helper"
+    # This avoids stem collisions when different packages have same module names
+    files_by_module: Dict[str, str] = {}
+    for node in file_nodes:
+        # Convert "src/pkg_a/utils/helper.py" -> parts ["src", "pkg_a", "utils", "helper"]
+        module_parts = node.path.replace(".py", "").split("/")
+        # Handle __init__.py: strip the "__init__" part
+        if module_parts[-1] == "__init__":
+            module_parts = module_parts[:-1]
+
+        # Add all suffix variants (most specific first)
+        for i in range(len(module_parts)):
+            suffix = ".".join(module_parts[i:])
+            if suffix not in files_by_module:  # First one wins (most specific path)
+                files_by_module[suffix] = node.path
+
     # Resolve imports for each node
     resolved_nodes = []
 
@@ -207,7 +264,7 @@ def resolve_imports(file_nodes: List[FileNode]) -> List[FileNode]:
         resolved_imports = []
 
         for imp in node.imports:
-            resolved = _resolve_single_import(imp, files_by_stem)
+            resolved = _resolve_single_import(imp, files_by_stem, files_by_module, node.path)
             # Only include if the resolved path exists in our repo
             if resolved and resolved in {n.path for n in file_nodes}:
                 resolved_imports.append(resolved)

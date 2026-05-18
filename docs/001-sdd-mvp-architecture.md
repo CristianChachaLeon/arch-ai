@@ -90,8 +90,8 @@ Workflow (SRP - each module has one responsibility):
 **Modules** (each follows SRP):
 - `file_discovery.py` - Walk directory, filter by extension (.py)
 - `ast_parser.py` - Parse Python files, extract imports/functions/classes from AST
-- `dependency_resolver.py` - Resolve raw imports to filenames (e.g., "utils.helpers" → "helpers.py")
-- `graph_builder.py` - Build NetworkX graph from resolved FileNodes only (no parsing)
+- `dependency_resolver.py` - Resolve raw imports to repo-relative paths (e.g., `"src.services.user"` → `"src/services/user.py"`)
+- `graph_builder.py` - Build NetworkX graph from resolved FileNodes containing repo-relative paths only (no parsing)
 
 #### 2.2.2 Semantic + Architectural Inference Engine
 
@@ -270,7 +270,7 @@ Workflow:
 class FileNode:
     """Metadata for a single file in the repository."""
     path: str           # filename (e.g., "main.py")
-    imports: List[str]  # resolved imports as filenames (e.g., ["helpers.py", "user.py"])
+    imports: List[str]  # resolved imports as repo-relative paths (e.g., ["src/helpers.py", "src/models/user.py"])
     functions: List[str]  # function names defined in the file
     classes: List[str]    # class names defined in the file
 
