@@ -83,3 +83,26 @@ class TestCircularImportHandler:
         collapsed = graph.collapse_cycles()
 
         assert ("main.py", "cyclic_module") in collapsed.graph.edges()
+
+    def test_collapse_without_cycles_preserves_structure(self):
+        """Should preserve node/edge structure and metadata when no cycles exist."""
+        file_nodes = [
+            FileNode(path="main.py", imports=["a.py"]),
+            FileNode(path="a.py", imports=["b.py"]),
+            FileNode(path="b.py", imports=["c.py"]),
+            FileNode(path="c.py", imports=[]),
+        ]
+        graph = build_graph(file_nodes)
+
+        collapsed = graph.collapse_cycles()
+
+        assert collapsed.graph.number_of_nodes() == 4
+        assert collapsed.graph.number_of_edges() == 3
+        assert ("main.py", "a.py") in collapsed.graph.edges()
+        assert ("a.py", "b.py") in collapsed.graph.edges()
+        assert ("b.py", "c.py") in collapsed.graph.edges()
+        assert collapsed.get_node("main.py") is not None
+        assert collapsed.get_node("a.py") is not None
+        assert collapsed.get_node("b.py") is not None
+        assert collapsed.get_node("c.py") is not None
+        assert collapsed.get_node("cyclic_module") is None

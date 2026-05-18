@@ -67,7 +67,7 @@ class FileGraph:
         try:
             cycles = list(nx.simple_cycles(self.graph))
             return cycles
-        except Exception:
+        except (nx.NetworkXError, nx.NetworkXException):
             return []
 
     def collapse_cycles(self) -> "FileGraph":
@@ -83,8 +83,9 @@ class FileGraph:
         """
         cycles = self.detect_cycles()
         if not cycles:
-            # No cycles, return a copy of the original graph
-            return FileGraph(self.graph.copy())
+            new_graph = FileGraph(self.graph.copy())
+            new_graph._nodes = self._nodes.copy()
+            return new_graph
 
         # Find all nodes that are part of any cycle
         cyclic_nodes: set = set()
