@@ -105,7 +105,9 @@ def compute_repo_hash(repo_path: str) -> str:
             rel_path = py_file.relative_to(repo).as_posix()
             content = py_file.read_bytes()
             hash_obj.update(rel_path.encode("utf-8"))
+            hash_obj.update(b"\0")
             hash_obj.update(content)
+            hash_obj.update(b"\0")
         except (OSError, PermissionError):
             continue
 
@@ -174,7 +176,7 @@ def load_cache(repo_path: str) -> Optional[FileGraph]:
 
     try:
         return _deserialize_graph(cache_data.get("graph", {}))
-    except (ValueError, KeyError):
+    except (ValueError, KeyError, TypeError, AttributeError):
         return None
 
 
