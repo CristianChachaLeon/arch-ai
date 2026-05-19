@@ -55,6 +55,74 @@ class FileGraph:
         self._nodes[node.path] = node
         self.graph.add_node(node.path)
 
+    def detect_cycles(self):
+        """
+        Detect cycles in the graph using NetworkX's simple_cycles.
+
+        Yields:
+            List of cycles, where each cycle is a list of node names.
+            Example: [['a.py', 'b.py', 'a.py']]
+        """
+        # Use simple_cycles which finds elementary cycles
+        try:
+            cycles = list(nx.simple_cycles(self.graph))
+            return cycles
+        except (nx.NetworkXError, nx.NetworkXException):
+            return []
+
+    def collapse_cycles(self) -> "FileGraph":
+        """
+        Collapse all detected cycles into a single virtual 'cyclic_module' node.
+
+        All files that are part of any cycle are replaced with one virtual node
+        called 'cyclic_module'. Edges to/from nodes outside the cycles are
+        preserved and reconnected to the virtual node.
+
+        Returns:
+            A new FileGraph with cycles collapsed.
+        """
+        cycles = self.detect_cycles()
+        if not cycles:
+            new_graph = FileGraph(self.graph.copy())
+            new_graph._nodes = self._nodes.copy()
+            return new_graph
+
+        # Find all nodes that are part of any cycle
+        cyclic_nodes: set = set()
+        for cycle in cycles:
+            for node in cycle:
+                cyclic_nodes.add(node)
+
+        # Create new graph
+        new_graph = nx.DiGraph()
+        new_file_graph = FileGraph(new_graph)
+
+        # Add all non-cyclic nodes to new graph
+        for node_name, node_obj in self._nodes.items():
+            if node_name not in cyclic_nodes:
+                new_file_graph.add_node(node_obj)
+
+        # Add virtual cyclic module node
+        cyclic_node = FileNode(path="cyclic_module", imports=[], functions=[], classes=[])
+        new_file_graph.add_node(cyclic_node)
+
+        # Reconstruct edges, redirecting from/to cyclic nodes to virtual node
+        for u, v in self.graph.edges():
+            if u in cyclic_nodes and v in cyclic_nodes:
+                # Both in cycle: edge internal to cyclic module, skip
+                continue
+            elif u in cyclic_nodes and v not in cyclic_nodes:
+                # From cycle to outside: connect virtual -> outside
+                new_graph.add_edge("cyclic_module", v)
+            elif u not in cyclic_nodes and v in cyclic_nodes:
+                # From outside to cycle: connect outside -> virtual
+                new_graph.add_edge(u, "cyclic_module")
+            else:
+                # Neither in cycle: keep as is
+                new_graph.add_edge(u, v)
+
+        return new_file_graph
+
 
 def build_graph(file_nodes: List[FileNode]) -> FileGraph:
     """
