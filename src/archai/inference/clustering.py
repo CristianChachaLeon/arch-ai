@@ -12,6 +12,12 @@ from typing import Dict, List
 
 from archai.bootstrap.graph_builder import FileGraph
 
+# Similarity weights - higher = more likely to be in same cluster
+DIRECTORY_MATCH_WEIGHT = 3
+SHARED_IMPORT_WEIGHT = 2
+BIDIRECTIONAL_CALL_WEIGHT = 4
+UNIDIRECTIONAL_CALL_WEIGHT = 1
+
 
 def cluster_files(graph: FileGraph) -> Dict[str, List[str]]:
     """
@@ -31,93 +37,98 @@ def cluster_files(graph: FileGraph) -> Dict[str, List[str]]:
     if graph.graph.number_of_nodes() == 0:
         return {}
 
+    # Step 1: Build a graph where edges represent file similarity
+    similarity_graph = _build_similarity_graph(graph)
+
+    # Step 2: Find communities (clusters) using modularity optimization
+    return _detect_communities(similarity_graph)
+
+
+def _build_similarity_graph(graph: FileGraph) -> nx.Graph:
+    """Build weighted graph where edge weight = file similarity."""
     nodes = list(graph.graph.nodes())
 
-    clusters: Dict[str, List[str]] = {}
-    node_to_cluster: Dict[str, str] = {}
-
-    node_dirs = {node: _get_directory(node) for node in nodes}
-
+    # Pre-compute features for all nodes
+    node_dirs = {node: _extract_directory(node) for node in nodes}
     shared_imports = _compute_shared_imports(graph, nodes)
+    bidirectional_calls = _find_bidirectional_calls(graph)
 
-    bidirectional = _get_bidirectional_edges(graph)
-
-    temp_graph = nx.Graph()
-
-    for node in nodes:
-        temp_graph.add_node(node)
+    # Build weighted graph
+    similarity_graph = nx.Graph()
+    similarity_graph.add_nodes_from(nodes)
 
     for i, node_a in enumerate(nodes):
         for node_b in nodes[i + 1 :]:
-            weight = _compute_edge_weight(node_a, node_b, node_dirs, shared_imports, bidirectional)
-            if weight > 0:
-                temp_graph.add_edge(node_a, node_b, weight=weight)
+            similarity = _calculate_similarity(
+                node_a, node_b, node_dirs, shared_imports, bidirectional_calls
+            )
+            if similarity > 0:
+                similarity_graph.add_edge(node_a, node_b, weight=similarity)
 
-    for component in greedy_modularity_communities(temp_graph, weight="weight"):
+    return similarity_graph
+
+
+def _detect_communities(graph: nx.Graph) -> Dict[str, List[str]]:
+    """Find communities using modularity optimization."""
+    clusters: Dict[str, List[str]] = {}
+
+    for component in greedy_modularity_communities(graph, weight="weight"):
         cluster_id = f"cluster_{len(clusters) + 1}"
-        cluster_files = sorted(list(component))
-        clusters[cluster_id] = cluster_files
-
-        for node in component:
-            node_to_cluster[node] = cluster_id
+        clusters[cluster_id] = sorted(list(component))
 
     return clusters
 
 
-def _get_directory(path: str) -> str:
-    """Get directory portion of a file path."""
+def _extract_directory(path: str) -> str:
+    """Extract directory portion from a file path."""
     parts = path.replace("\\", "/").split("/")
-    if len(parts) > 1:
-        return "/".join(parts[:-1])
-    return ""
+    return "/".join(parts[:-1]) if len(parts) > 1 else ""
 
 
 def _compute_shared_imports(graph: FileGraph, nodes: List[str]) -> Dict[str, set]:
-    """Compute set of imports for each node."""
-    imports = {}
-    for node in nodes:
-        file_node = graph.get_node(node)
-        if file_node:
-            imports[node] = set(file_node.imports)
-        else:
-            imports[node] = set()
-    return imports
+    """Build a mapping of node -> set of imported modules."""
+    return {
+        node: set(graph.get_node(node).imports) if graph.get_node(node) else set() for node in nodes
+    }
 
 
-def _get_bidirectional_edges(graph: FileGraph) -> set:
-    """Get set of node pairs with bidirectional edges."""
+def _find_bidirectional_calls(graph: FileGraph) -> set:
+    """Find all pairs of files that call each other (bidirectional)."""
     bidirectional = set()
     for edge in graph.graph.edges():
-        a, b = edge
-        if graph.graph.has_edge(b, a):
-            pair = tuple(sorted([a, b]))
+        source, target = edge
+        if graph.graph.has_edge(target, source):
+            pair = tuple(sorted([source, target]))
             bidirectional.add(pair)
     return bidirectional
 
 
-def _compute_edge_weight(
+def _calculate_similarity(
     node_a: str,
     node_b: str,
     node_dirs: Dict[str, str],
     shared_imports: Dict[str, set],
-    bidirectional: set,
+    bidirectional_calls: set,
 ) -> int:
-    """Compute weight of edge between two nodes based on signals."""
-    weight = 0
+    """Calculate similarity score between two files (higher = more similar)."""
+    similarity = 0
 
-    if node_dirs[node_a] == node_dirs[node_b] and node_dirs[node_a] != "":
-        weight += 3
+    # Signal 1: Same directory
+    if node_dirs[node_a] == node_dirs[node_b] and node_dirs[node_a]:
+        similarity += DIRECTORY_MATCH_WEIGHT
 
+    # Signal 2: Shared imports
     imports_a = shared_imports.get(node_a, set())
     imports_b = shared_imports.get(node_b, set())
-    shared = imports_a & imports_b
-    if shared:
-        weight += 2 * len(shared)
+    common_imports = imports_a & imports_b
+    if common_imports:
+        similarity += SHARED_IMPORT_WEIGHT * len(common_imports)
 
+    # Signal 3: Call relationships
     pair = tuple(sorted([node_a, node_b]))
-    if pair in bidirectional:
-        weight += 4
+    if pair in bidirectional_calls:
+        similarity += BIDIRECTIONAL_CALL_WEIGHT
     elif node_a in imports_b or node_b in imports_a:
-        weight += 1
+        similarity += UNIDIRECTIONAL_CALL_WEIGHT
 
-    return weight
+    return similarity
