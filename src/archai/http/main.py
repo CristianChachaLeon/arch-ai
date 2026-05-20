@@ -18,8 +18,11 @@ setup_logging()
 
 app = FastAPI(title="ArchAI", version="0.1.0")
 
+# LLM model override (default: claude-sonnet-4-20250514, e.g. gemini/gemini-2.0-flash)
+LLM_MODEL = os.environ.get("ARCHAI_LLM_MODEL")
+
 # Initialize middleware (singleton)
-middleware = ArchaiMiddleware(llm_provider=LiteLLMProvider())
+middleware = ArchaiMiddleware(llm_provider=LiteLLMProvider(model=LLM_MODEL))
 
 # Allowed repo root for path validation (fail-closed: must be set or override enabled)
 ALLOWED_REPO_ROOT = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT") or None
