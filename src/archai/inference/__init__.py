@@ -5,5 +5,12 @@ and detect patterns, clusters, and relationships.
 """
 
 from archai.inference.clustering import cluster_files
+from archai.inference.llm.base import LLMError, LLMProvider
+from archai.inference.llm.litellm_provider import LiteLLMProvider
 
-__all__ = ["cluster_files"]
+__all__ = [
+    "cluster_files",
+    "LLMError",
+    "LLMProvider",
+    "LiteLLMProvider",
+]
