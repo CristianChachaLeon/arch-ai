@@ -154,6 +154,48 @@ class TestLiteLLMProviderGenerate:
         with pytest.raises(LLMError, match="empty response"):
             await provider.generate(prompt="Test")
 
+    @patch("archai.inference.llm.litellm_provider.litellm.acompletion")
+    async def test_generate_raises_llm_error_on_empty_choices(self, mock_acompletion: AsyncMock):
+        response = MagicMock()
+        response.choices = []
+        mock_acompletion.return_value = response
+        provider = LiteLLMProvider(model="gpt-4o-mini")
+
+        with pytest.raises(LLMError, match="Malformed response from LLM"):
+            await provider.generate(prompt="Test")
+
+    @patch("archai.inference.llm.litellm_provider.litellm.acompletion")
+    async def test_generate_raises_llm_error_on_missing_choices(self, mock_acompletion: AsyncMock):
+        response = MagicMock(spec=[])  # no .choices attribute
+        mock_acompletion.return_value = response
+        provider = LiteLLMProvider(model="gpt-4o-mini")
+
+        with pytest.raises(LLMError, match="Malformed response from LLM"):
+            await provider.generate(prompt="Test")
+
+    @patch("archai.inference.llm.litellm_provider.litellm.acompletion")
+    async def test_generate_raises_llm_error_on_no_message(self, mock_acompletion: AsyncMock):
+        choice = MagicMock(spec=[])  # no .message attribute
+        response = MagicMock()
+        response.choices = [choice]
+        mock_acompletion.return_value = response
+        provider = LiteLLMProvider(model="gpt-4o-mini")
+
+        with pytest.raises(LLMError, match="Malformed response from LLM"):
+            await provider.generate(prompt="Test")
+
+    @patch("archai.inference.llm.litellm_provider.litellm.acompletion")
+    async def test_generate_raises_llm_error_on_none_message(self, mock_acompletion: AsyncMock):
+        choice = MagicMock()
+        choice.message = None
+        response = MagicMock()
+        response.choices = [choice]
+        mock_acompletion.return_value = response
+        provider = LiteLLMProvider(model="gpt-4o-mini")
+
+        with pytest.raises(LLMError, match="Malformed response from LLM"):
+            await provider.generate(prompt="Test")
+
 
 class TestLiteLLMProviderGenerateStructured:
     """Structured (JSON) generation."""

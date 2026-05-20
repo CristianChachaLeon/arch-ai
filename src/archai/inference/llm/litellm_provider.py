@@ -77,7 +77,11 @@ class LiteLLMProvider(LLMProvider):
         except Exception as exc:
             raise LLMError(f"LLM call failed: {exc}") from exc
 
-        content = response.choices[0].message.content
+        try:
+            content = response.choices[0].message.content
+        except (IndexError, AttributeError, KeyError, TypeError) as exc:
+            raise LLMError(f"Malformed response from LLM: {exc}") from exc
+
         if content is None:
             raise LLMError("LLM returned empty response")
         return content
