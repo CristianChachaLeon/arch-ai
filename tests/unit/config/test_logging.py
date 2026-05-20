@@ -5,6 +5,8 @@ Tests for logging configuration (T-003).
 
 import json
 import logging
+import sys
+
 import pytest
 
 
@@ -138,6 +140,31 @@ class TestJSONFormatter:
 
         assert data["custom_field"] == "custom_value"
         assert data["request_id"] == "req-123"
+
+    def test_format_includes_exception_info(self):
+        """JSON output should include exception info when exc_info is set."""
+        from archai.config.logging import JSONFormatter
+
+        formatter = JSONFormatter()
+        try:
+            raise ValueError("test error")
+        except ValueError:
+            record = logging.LogRecord(
+                name="test",
+                level=logging.ERROR,
+                pathname="test.py",
+                lineno=1,
+                msg="error occurred",
+                args=(),
+                exc_info=sys.exc_info(),
+            )
+
+        output = formatter.format(record)
+        data = json.loads(output)
+
+        assert "exception" in data
+        assert "ValueError" in data["exception"]
+        assert "test error" in data["exception"]
 
 
 class TestGetLogger:

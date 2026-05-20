@@ -9,13 +9,55 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      COVERAGE_THRESHOLD: 80
+
+    permissions:
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
-      - run: pip install -e ".[dev]"
-      - run: pytest
-      - run: pytest --cov=src --cov-report=term --cov-fail-under=80
-        continue-on-error: true
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests and coverage
+        id: test-coverage
+        run: |
+            set -o pipefail
+            pytest --cov=src --cov-report=term --cov-fail-under=$COVERAGE_THRESHOLD | tee coverage.txt
+
+      - name: Extract coverage
+        id: extract-coverage
+        if: always()
+        run: |
+          COVERAGE=$(grep TOTAL coverage.txt | awk '{print $NF}' | tr -d '%')
+          echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+      
+      - name: Post coverage comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          script: |
+            const threshold = Number(process.env.COVERAGE_THRESHOLD);
+            const coverage = parseFloat('${{ steps.extract-coverage.outputs.coverage }}');
+            const passed = coverage >= threshold;
+
+            const body =
+              '## 📊 Coverage Report\n\n' +
+              `**Coverage: ${coverage}%**\n\n` +
+              (passed
+                ? '✅ Meets 80% target'
+                : '⚠️ Below 80% threshold');
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      
