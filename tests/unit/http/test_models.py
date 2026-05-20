@@ -126,9 +126,7 @@ class TestContextPacket:
             focus_reasoning="User asked about API endpoints",
             constraints=SubsystemConstraints(),
             subgraph=["main.py", "routes.py"],
-            relevant_files=[
-                FileMetadata(path="main.py", reason="entry point", importance=1.0)
-            ],
+            relevant_files=[FileMetadata(path="main.py", reason="entry point", importance=1.0)],
             metadata={"repo_id": "test-repo"},
         )
         assert packet.focus == "http"
@@ -226,3 +224,16 @@ class TestValidateChangeResponse:
         )
         assert response.valid is False
         assert len(response.violations) == 1
+
+    def test_validation_error_when_valid_true_with_violations(self):
+        """Test that valid=True with non-empty violations raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ValidateChangeResponse(
+                valid=True,
+                violations=[{"file": "x", "rule": "y", "message": "z"}],
+            )
+
+    def test_validation_error_when_valid_false_without_violations(self):
+        """Test that valid=False with empty violations raises ValidationError."""
+        with pytest.raises(ValidationError):
+            ValidateChangeResponse(valid=False, violations=[])

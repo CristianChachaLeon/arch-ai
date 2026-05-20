@@ -1,5 +1,9 @@
 """File Discovery - RED (test before implementation)"""
 
+import os
+
+import pytest
+
 
 class TestFileDiscovery:
     """Test suite for file_discovery module"""
@@ -104,3 +108,33 @@ class TestFileDiscovery:
         # Assert: sorted alphabetically
         names = [p.name for p in result]
         assert names == ["a_file.py", "m_file.py", "z_file.py"]
+
+    def test_discover_python_files_raises_on_file_path(self, tmp_path):
+        """Should raise ValueError when path is a file, not a directory"""
+        # Arrange
+        file_path = tmp_path / "not_a_dir.py"
+        file_path.touch()
+
+        # Act / Assert
+        from archai.bootstrap import file_discovery
+
+        with pytest.raises(ValueError, match="Path is not a directory"):
+            file_discovery.discover_python_files(file_path)
+
+    def test_discover_python_files_skips_symlink(self, tmp_path):
+        """Should skip symlinks but include the real file"""
+        # Arrange
+        real_file = tmp_path / "real.py"
+        real_file.touch()
+
+        link_path = tmp_path / "link.py"
+        os.symlink(real_file, link_path)
+
+        # Act
+        from archai.bootstrap import file_discovery
+
+        result = file_discovery.discover_python_files(tmp_path)
+
+        # Assert: real file included, symlink excluded
+        assert real_file in result
+        assert link_path not in result
