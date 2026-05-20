@@ -20,8 +20,9 @@ app = FastAPI(title="ArchAI", version="0.1.0")
 # Initialize middleware (singleton)
 middleware = ArchaiMiddleware()
 
-# Allowed repo root for path validation (None = no restriction)
-ALLOWED_REPO_ROOT = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT")
+# Allowed repo root for path validation (fail-closed: must be set or override enabled)
+ALLOWED_REPO_ROOT = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT") or None
+ALLOW_UNSAFE = os.environ.get("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", "").lower() == "true"
 
 
 class ProcessRequest(BaseModel):
@@ -30,17 +31,25 @@ class ProcessRequest(BaseModel):
     @field_validator("repo_path")
     @classmethod
     def validate_repo_path(cls, v: str) -> str:
-        """Validate and normalize repo_path against allowed root."""
-        # Resolve the incoming path to absolute
+        """Validate and normalize repo_path against allowed root (fail-closed)."""
         resolved_path = Path(v).resolve()
 
         if ALLOWED_REPO_ROOT is not None:
+            # Restrictive mode: validate against the configured root
             allowed_root = Path(ALLOWED_REPO_ROOT).resolve()
             if not resolved_path.is_relative_to(allowed_root):
                 raise ValueError(
                     f"repo_path must be within allowed root: {allowed_root}. "
                     f"Got: {resolved_path}"
                 )
+        elif not ALLOW_UNSAFE:
+            # Fail-closed: no root configured and no dev override
+            raise ValueError(
+                "ARCHAI_ALLOWED_REPO_ROOT is not set. "
+                "Set it to a safe repo root, or set "
+                "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
+            )
+        # else: dev override — allow any path
 
         return str(resolved_path)
 
@@ -75,5 +84,7 @@ def process_repository(request: ProcessRequest) -> ProcessResponse:
 
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pipeline error: {str(e)}")
