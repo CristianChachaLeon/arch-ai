@@ -11,6 +11,8 @@ Usage:
     result = middleware.process("/path/to/repo")
 """
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -27,6 +29,8 @@ from archai.bootstrap import (
     build_graph,
 )
 from archai.inference.clustering import cluster_files
+from archai.inference.labeler import LabeledCluster, label_clusters
+from archai.inference.llm.base import LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +38,16 @@ logger = logging.getLogger(__name__)
 class ArchaiMiddleware:
     """Main middleware that orchestrates the bootstrap + inference pipeline."""
 
-    def __init__(self):
-        """Initialize the middleware."""
+    def __init__(self, llm_provider: LLMProvider | None = None):
+        """Initialize the middleware.
+
+        Args:
+            llm_provider: Optional LLM provider for semantic labeling of clusters.
+        """
+        self.llm_provider = llm_provider
         logger.info("ArchaiMiddleware initialized")
 
-    def process(self, repo_path: str | Path) -> "PipelineResult":
+    async def process(self, repo_path: str | Path) -> PipelineResult:
         """Process a repository through the full pipeline.
 
         Args:
@@ -55,6 +64,13 @@ class ArchaiMiddleware:
         # Step 5: Inference (clustering)
         clusters = self._run_inference(graph)
 
+        # Step 6: Semantic labeling (optional)
+        labeled_clusters = None
+        if self.llm_provider is not None:
+            logger.info("Labeling clusters using LLM...")
+            labeled_clusters = await label_clusters(clusters, self.llm_provider)
+            logger.info(f"Labeled {len(labeled_clusters)} clusters")
+
         result = PipelineResult(
             repo_path=str(repo_path),
             graph=graph,
@@ -62,6 +78,7 @@ class ArchaiMiddleware:
             file_count=graph.graph.number_of_nodes(),
             edge_count=graph.graph.number_of_edges(),
             cluster_count=len(clusters),
+            labeled_clusters=labeled_clusters,
         )
 
         logger.info(
@@ -154,6 +171,7 @@ class PipelineResult:
         file_count: int,
         edge_count: int,
         cluster_count: int,
+        labeled_clusters: list[LabeledCluster] | None = None,
     ):
         self.repo_path = repo_path
         self.graph = graph
@@ -161,6 +179,7 @@ class PipelineResult:
         self.file_count = file_count
         self.edge_count = edge_count
         self.cluster_count = cluster_count
+        self.labeled_clusters = labeled_clusters
 
     def get_cluster_for_file(self, file_path: str) -> Optional[str]:
         """Find which cluster a file belongs to."""
@@ -175,13 +194,16 @@ class PipelineResult:
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
-        return {
+        data = {
             "repo_path": self.repo_path,
             "file_count": self.file_count,
             "edge_count": self.edge_count,
             "cluster_count": self.cluster_count,
             "clusters": {name: sorted(files) for name, files in self.clusters.items()},
         }
+        if self.labeled_clusters is not None:
+            data["cluster_names"] = {lc.cluster_id: lc.name for lc in self.labeled_clusters}
+        return data
 
     def __repr__(self) -> str:
         return (

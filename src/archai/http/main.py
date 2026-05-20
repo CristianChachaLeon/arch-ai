@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from archai.config.logging import setup_logging
+from archai.inference.llm import LiteLLMProvider
 from archai.middleware import ArchaiMiddleware
 
 setup_logging()
@@ -18,7 +19,7 @@ setup_logging()
 app = FastAPI(title="ArchAI", version="0.1.0")
 
 # Initialize middleware (singleton)
-middleware = ArchaiMiddleware()
+middleware = ArchaiMiddleware(llm_provider=LiteLLMProvider())
 
 # Allowed repo root for path validation (fail-closed: must be set or override enabled)
 ALLOWED_REPO_ROOT = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT") or None
@@ -69,10 +70,10 @@ def health_check() -> JSONResponse:
 
 
 @app.post("/process", response_model=ProcessResponse)
-def process_repository(request: ProcessRequest) -> ProcessResponse:
+async def process_repository(request: ProcessRequest) -> ProcessResponse:
     """Process a repository through the bootstrap + inference pipeline."""
     try:
-        result = middleware.process(request.repo_path)
+        result = await middleware.process(request.repo_path)
 
         return ProcessResponse(
             repo_path=result.repo_path,
