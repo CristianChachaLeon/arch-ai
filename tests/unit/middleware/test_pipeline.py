@@ -90,12 +90,16 @@ def authenticate():
         result = middleware.process(temp_repo)
 
         # Find a file that's in a cluster
+        found_any = False
         for cluster_name, files in result.clusters.items():
             if files:
                 # Test with the first file in the cluster
                 found = result.get_cluster_for_file(files[0])
                 assert found == cluster_name
+                found_any = True
                 break
+
+        assert found_any, "Expected at least one clustered file for lookup assertion"
 
     def test_middleware_handles_empty_directory(self, tmp_path):
         """Middleware should handle empty directory gracefully."""
@@ -107,10 +111,11 @@ def authenticate():
         assert result.cluster_count == 0
         assert result.clusters == {}
 
-    def test_middleware_handles_nonexistent_path(self):
+    def test_middleware_handles_nonexistent_path(self, tmp_path):
         """Middleware should raise error for nonexistent path."""
         middleware = ArchaiMiddleware()
 
+        missing_path = tmp_path / "definitely_missing_dir"
         # discover_python_files raises ValueError for invalid paths
         with pytest.raises(ValueError, match="Path is not a directory"):
-            middleware.process("/nonexistent/path")
+            middleware.process(missing_path)

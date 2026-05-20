@@ -67,6 +67,7 @@ class TestClustering:
 
         assert app_cluster is not None
         assert service_cluster is not None
+        assert other_cluster is not None
         assert app_cluster == service_cluster
         assert other_cluster != app_cluster
         assert other_cluster != service_cluster

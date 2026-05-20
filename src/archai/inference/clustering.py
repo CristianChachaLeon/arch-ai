@@ -52,6 +52,7 @@ def _build_similarity_graph(graph: FileGraph) -> nx.Graph:
     node_dirs = {node: _extract_directory(node) for node in nodes}
     shared_imports = _compute_shared_imports(graph, nodes)
     bidirectional_calls = _find_bidirectional_calls(graph)
+    unidirectional_calls = _find_unidirectional_calls(graph)
 
     # Build weighted graph
     similarity_graph = nx.Graph()
@@ -60,7 +61,7 @@ def _build_similarity_graph(graph: FileGraph) -> nx.Graph:
     for i, node_a in enumerate(nodes):
         for node_b in nodes[i + 1 :]:
             similarity = _calculate_similarity(
-                node_a, node_b, node_dirs, shared_imports, bidirectional_calls
+                node_a, node_b, node_dirs, shared_imports, bidirectional_calls, unidirectional_calls
             )
             if similarity > 0:
                 similarity_graph.add_edge(node_a, node_b, weight=similarity)
@@ -103,12 +104,18 @@ def _find_bidirectional_calls(graph: FileGraph) -> set:
     return bidirectional
 
 
+def _find_unidirectional_calls(graph: FileGraph) -> set:
+    """Find directed file dependency pairs (edges from graph)."""
+    return set(graph.graph.edges())
+
+
 def _calculate_similarity(
     node_a: str,
     node_b: str,
     node_dirs: Dict[str, str],
     shared_imports: Dict[str, set],
     bidirectional_calls: set,
+    unidirectional_calls: set,
 ) -> int:
     """Calculate similarity score between two files (higher = more similar)."""
     similarity = 0
@@ -124,11 +131,11 @@ def _calculate_similarity(
     if common_imports:
         similarity += SHARED_IMPORT_WEIGHT * len(common_imports)
 
-    # Signal 3: Call relationships
+    # Signal 3: Call relationships (using graph edges, not raw imports)
     pair = tuple(sorted([node_a, node_b]))
     if pair in bidirectional_calls:
         similarity += BIDIRECTIONAL_CALL_WEIGHT
-    elif node_a in imports_b or node_b in imports_a:
+    elif (node_a, node_b) in unidirectional_calls or (node_b, node_a) in unidirectional_calls:
         similarity += UNIDIRECTIONAL_CALL_WEIGHT
 
     return similarity

@@ -107,9 +107,12 @@ class ArchaiMiddleware:
                 )
                 file_nodes.append(node)
 
-            except Exception as e:
+            except (SyntaxError, UnicodeDecodeError, OSError) as e:
                 errors.append((f.name, str(e)))
                 logger.warning(f"Failed to parse {f.name}: {e}")
+            except Exception:
+                logger.exception("Unexpected bootstrap failure while parsing %s", f)
+                raise
 
         logger.debug(f"Parsed {len(file_nodes)} files, {len(errors)} errors")
 
@@ -168,7 +171,7 @@ class PipelineResult:
 
     def get_files_in_cluster(self, cluster_name: str) -> List[str]:
         """Get all files in a specific cluster."""
-        return self.clusters.get(cluster_name, [])
+        return list(self.clusters.get(cluster_name, []))
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
