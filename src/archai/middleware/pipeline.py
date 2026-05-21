@@ -203,6 +203,12 @@ class PipelineResult:
         }
         if self.labeled_clusters is not None:
             data["cluster_names"] = {lc.cluster_id: lc.name for lc in self.labeled_clusters}
+            data["cluster_descriptions"] = {
+                lc.cluster_id: lc.description for lc in self.labeled_clusters
+            }
+            data["cluster_reasonings"] = {
+                lc.cluster_id: lc.reasoning for lc in self.labeled_clusters
+            }
         return data
 
     def __repr__(self) -> str:

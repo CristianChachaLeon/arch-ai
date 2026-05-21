@@ -7,6 +7,7 @@ to depend on an abstraction rather than a concrete API.
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -79,13 +80,16 @@ class LLMProvider(ABC):
         Raises:
             LLMError: If the LLM call or JSON parsing fails.
         """
-        json_instruction = (
-            "You must respond with valid JSON only — no markdown formatting, "
-            "no explanation. The JSON must match the requested schema."
+        # Build an explicit schema description from the Pydantic model
+        # so the LLM knows EXACTLY which fields to return.
+        fields = response_model.model_fields
+        schema_example = {name: f"<{name}>" for name in fields}
+        schema_hint = (
+            f"Respond with valid JSON only — no markdown, no explanation. "
+            f"The object MUST contain these fields: {', '.join(fields)}. "
+            f"Example: {json.dumps(schema_example)}"
         )
-        combined_system = (
-            f"{system_prompt}\n\n{json_instruction}" if system_prompt else json_instruction
-        )
+        combined_system = f"{system_prompt}\n\n{schema_hint}" if system_prompt else schema_hint
 
         content = await self.generate(
             prompt=prompt,

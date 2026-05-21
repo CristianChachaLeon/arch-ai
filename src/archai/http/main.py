@@ -64,6 +64,9 @@ class ProcessResponse(BaseModel):
     edge_count: int
     cluster_count: int
     clusters: dict
+    cluster_names: dict | None = None
+    cluster_descriptions: dict | None = None
+    cluster_reasonings: dict | None = None
 
 
 @app.get("/health")
@@ -78,12 +81,16 @@ async def process_repository(request: ProcessRequest) -> ProcessResponse:
     try:
         result = await middleware.process(request.repo_path)
 
+        result_dict = result.to_dict()
         return ProcessResponse(
             repo_path=result.repo_path,
             file_count=result.file_count,
             edge_count=result.edge_count,
             cluster_count=result.cluster_count,
-            clusters=result.to_dict()["clusters"],
+            clusters=result_dict["clusters"],
+            cluster_names=result_dict.get("cluster_names"),
+            cluster_descriptions=result_dict.get("cluster_descriptions"),
+            cluster_reasonings=result_dict.get("cluster_reasonings"),
         )
 
     except FileNotFoundError as e:

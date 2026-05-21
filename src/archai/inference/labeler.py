@@ -40,6 +40,7 @@ class LabeledCluster(BaseModel):
     files: list[str]
     name: str
     description: str
+    reasoning: str
 
 
 def _build_cluster_prompt(cluster_id: str, files: list[str]) -> str:
@@ -82,6 +83,7 @@ async def label_clusters(
                 files=files,
                 name=label.name,
                 description=label.description,
+                reasoning=label.reasoning,
             )
         )
 

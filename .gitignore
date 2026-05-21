@@ -38,3 +38,6 @@ pip-delete-this-directory.txt
 # uv (si usás uv)
 .no-link
 uv.lock
+
+# Environment variables (API keys, secrets)
+.env
