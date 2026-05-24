@@ -11,14 +11,19 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from archai.config.logging import setup_logging
+from archai.inference.llm import LiteLLMProvider
 from archai.middleware import ArchaiMiddleware
 
 setup_logging()
 
 app = FastAPI(title="ArchAI", version="0.1.0")
 
+# LLM model override (default: claude-sonnet-4-20250514, e.g. gemini/gemini-2.0-flash)
+LLM_MODEL = os.environ.get("ARCHAI_LLM_MODEL")
+
 # Initialize middleware (singleton)
-middleware = ArchaiMiddleware()
+llm_provider = LiteLLMProvider(model=LLM_MODEL) if LLM_MODEL else None
+middleware = ArchaiMiddleware(llm_provider=llm_provider)
 
 # Allowed repo root for path validation (fail-closed: must be set or override enabled)
 ALLOWED_REPO_ROOT = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT") or None
@@ -60,6 +65,9 @@ class ProcessResponse(BaseModel):
     edge_count: int
     cluster_count: int
     clusters: dict
+    cluster_names: dict | None = None
+    cluster_descriptions: dict | None = None
+    cluster_reasonings: dict | None = None
 
 
 @app.get("/health")
@@ -69,17 +77,21 @@ def health_check() -> JSONResponse:
 
 
 @app.post("/process", response_model=ProcessResponse)
-def process_repository(request: ProcessRequest) -> ProcessResponse:
+async def process_repository(request: ProcessRequest) -> ProcessResponse:
     """Process a repository through the bootstrap + inference pipeline."""
     try:
-        result = middleware.process(request.repo_path)
+        result = await middleware.process(request.repo_path)
 
+        result_dict = result.to_dict()
         return ProcessResponse(
             repo_path=result.repo_path,
             file_count=result.file_count,
             edge_count=result.edge_count,
             cluster_count=result.cluster_count,
-            clusters=result.to_dict()["clusters"],
+            clusters=result_dict["clusters"],
+            cluster_names=result_dict.get("cluster_names"),
+            cluster_descriptions=result_dict.get("cluster_descriptions"),
+            cluster_reasonings=result_dict.get("cluster_reasonings"),
         )
 
     except FileNotFoundError as e:
