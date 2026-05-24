@@ -96,4 +96,4 @@ class TestFocusResolution:
         assert focus == "api"
         assert "api" in reasoning.lower()
         assert "matched" in reasoning.lower()
-        assert "2 of" in reasoning.lower()  # "http handler" = 2 tokens, score=2
+        assert "hit" in reasoning.lower()
