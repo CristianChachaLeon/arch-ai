@@ -95,4 +95,5 @@ class TestFocusResolution:
         focus, reasoning = resolve_focus("http handler", clusters)
         assert focus == "api"
         assert "api" in reasoning.lower()
-        assert "handler" in reasoning.lower() or "http" in reasoning.lower()
+        assert "matched" in reasoning.lower()
+        assert "2 of" in reasoning.lower()  # "http handler" = 2 tokens, score=2

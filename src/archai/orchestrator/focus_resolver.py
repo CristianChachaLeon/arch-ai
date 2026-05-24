@@ -53,6 +53,5 @@ def resolve_focus(
 
     return (
         best_cluster,
-        f"Query terms {sorted(query_tokens)} matched cluster '{best_cluster}' "
-        f"with {best_score} hit(s)",
+        f"matched {best_score} of {len(query_tokens)} query terms against cluster '{best_cluster}'",
     )
