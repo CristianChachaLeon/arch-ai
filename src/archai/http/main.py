@@ -22,7 +22,8 @@ app = FastAPI(title="ArchAI", version="0.1.0")
 LLM_MODEL = os.environ.get("ARCHAI_LLM_MODEL")
 
 # Initialize middleware (singleton)
-middleware = ArchaiMiddleware(llm_provider=LiteLLMProvider(model=LLM_MODEL))
+llm_provider = LiteLLMProvider(model=LLM_MODEL) if LLM_MODEL else None
+middleware = ArchaiMiddleware(llm_provider=llm_provider)
 
 # Allowed repo root for path validation (fail-closed: must be set or override enabled)
 ALLOWED_REPO_ROOT = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT") or None

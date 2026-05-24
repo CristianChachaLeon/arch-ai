@@ -30,7 +30,7 @@ from archai.bootstrap import (
 )
 from archai.inference.clustering import cluster_files
 from archai.inference.labeler import LabeledCluster, label_clusters
-from archai.inference.llm.base import LLMProvider
+from archai.inference.llm.base import LLMError, LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -68,8 +68,11 @@ class ArchaiMiddleware:
         labeled_clusters = None
         if self.llm_provider is not None:
             logger.info("Labeling clusters using LLM...")
-            labeled_clusters = await label_clusters(clusters, self.llm_provider)
-            logger.info(f"Labeled {len(labeled_clusters)} clusters")
+            try:
+                labeled_clusters = await label_clusters(clusters, self.llm_provider)
+                logger.info(f"Labeled {len(labeled_clusters)} clusters")
+            except LLMError:
+                logger.exception("Failed to label clusters, proceeding without labels")
 
         result = PipelineResult(
             repo_path=str(repo_path),

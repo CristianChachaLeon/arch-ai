@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from archai.inference.labeler import LabeledCluster
+from archai.inference.labeler import ClusterLabel, LabeledCluster
 from archai.middleware.pipeline import ArchaiMiddleware, PipelineResult
 
 
@@ -127,29 +127,27 @@ def authenticate():
         """When an LLM provider is passed, label_clusters should be called."""
         mock_provider = AsyncMock(spec=["generate_structured"])
         mock_provider.generate_structured = AsyncMock(
-            return_value=LabeledCluster(
-                cluster_id="test_cluster",
-                files=["main.py"],
+            return_value=ClusterLabel(
                 name="Test Module",
                 description="A test module",
+                reasoning="Test reasoning",
             )
         )
 
         middleware = ArchaiMiddleware(llm_provider=mock_provider)
         result = await middleware.process(temp_repo)
 
-        assert mock_provider.generate_structured.called
+        mock_provider.generate_structured.assert_awaited()
         assert result.labeled_clusters is not None
 
     async def test_labeled_clusters_in_pipeline_result(self, temp_repo):
         """PipelineResult should contain labeled clusters when provider is given."""
         mock_provider = AsyncMock(spec=["generate_structured"])
         mock_provider.generate_structured = AsyncMock(
-            return_value=LabeledCluster(
-                cluster_id="test_cluster",
-                files=["main.py"],
+            return_value=ClusterLabel(
                 name="Test Module",
                 description="A test module",
+                reasoning="Test reasoning",
             )
         )
 
@@ -166,11 +164,10 @@ def authenticate():
         """to_dict should include cluster_names when labeled clusters exist."""
         mock_provider = AsyncMock(spec=["generate_structured"])
         mock_provider.generate_structured = AsyncMock(
-            return_value=LabeledCluster(
-                cluster_id="test_cluster",
-                files=["main.py"],
+            return_value=ClusterLabel(
                 name="Test Module",
                 description="A test module",
+                reasoning="Test reasoning",
             )
         )
 

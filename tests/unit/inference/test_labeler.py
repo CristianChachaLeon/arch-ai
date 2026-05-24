@@ -37,6 +37,7 @@ class TestLabeledCluster:
             files=["src/auth/login.py", "src/auth/register.py"],
             name="Auth Module",
             description="Handles authentication",
+            reasoning="All files relate to authentication",
         )
         assert lc.cluster_id == "cluster_1"
         assert lc.files == ["src/auth/login.py", "src/auth/register.py"]

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+import asyncio
+
 from archai.inference.llm.base import LLMProvider
 
 CLUSTER_SYSTEM_PROMPT = (
@@ -68,23 +70,24 @@ async def label_clusters(
     if not clusters:
         return []
 
-    labeled: list[LabeledCluster] = []
-    for cluster_id, files in clusters.items():
-        prompt = _build_cluster_prompt(cluster_id, files)
-        label = await provider.generate_structured(
-            prompt=prompt,
-            response_model=ClusterLabel,
-            system_prompt=CLUSTER_SYSTEM_PROMPT,
-        )
+    sem = asyncio.Semaphore(5)
 
-        labeled.append(
-            LabeledCluster(
+    async def _label_one(cluster_id: str, files: list[str]) -> LabeledCluster:
+        async with sem:
+            prompt = _build_cluster_prompt(cluster_id, files)
+            label = await provider.generate_structured(
+                prompt=prompt,
+                response_model=ClusterLabel,
+                system_prompt=CLUSTER_SYSTEM_PROMPT,
+            )
+            return LabeledCluster(
                 cluster_id=cluster_id,
                 files=files,
                 name=label.name,
                 description=label.description,
                 reasoning=label.reasoning,
             )
-        )
 
+    tasks = [_label_one(cid, fls) for cid, fls in clusters.items()]
+    labeled = await asyncio.gather(*tasks)
     return labeled
