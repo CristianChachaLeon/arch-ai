@@ -15,17 +15,63 @@ from archai.orchestrator.focus_resolver import resolve_focus
 _TEST_FILE_PATTERNS = re.compile(r"(test_.*\.py|.*_test\.py|conftest\.py)$")
 
 
+def _strip_test_prefix(filename: str) -> str:
+    """Strip test_ prefix or _test suffix from a filename.
+
+    Args:
+        filename: e.g. "test_routes.py" or "routes_test.py"
+
+    Returns:
+        e.g. "routes.py"
+    """
+    if filename.startswith("test_"):
+        return filename[5:]
+    if filename.endswith("_test.py"):
+        return filename[: -len("_test.py")] + ".py"
+    return filename
+
+
+def _test_to_source_path(test_path: str) -> str:
+    """Convert a test file path to its presumed source counterpart.
+
+    "tests/api/test_routes.py" → "src/api/routes.py"
+    "tests/core/test_engine.py" → "src/core/engine.py"
+    "src/tests/api/test_routes.py" → "src/api/routes.py"
+
+    Args:
+        test_path: Path to a test file
+
+    Returns:
+        Presumed source file path
+    """
+    if test_path.startswith("tests/"):
+        rel = test_path[len("tests/") :]
+    elif "/tests/" in test_path:
+        rel = test_path.replace("/tests/", "/", 1)
+    else:
+        rel = test_path
+
+    if "/" in rel:
+        dir_part, filename = rel.rsplit("/", 1)
+    else:
+        dir_part, filename = "", rel
+
+    source_filename = _strip_test_prefix(filename)
+    if dir_part:
+        return f"src/{dir_part}/{source_filename}"
+    return f"src/{source_filename}"
+
+
 def _find_related_test_files(
     focus_files: list[str],
     all_clusters: dict[str, list[str]],
 ) -> list[str]:
     """Find test files related to the focus subsystem.
 
-    A test file is considered related if:
-    - Its name matches test patterns (test_*.py, *_test.py, conftest.py)
-    - It's inside a tests/ directory
-    - Its basename (after removing test_ prefix) matches a focus file basename
-      OR it shares a directory prefix with a focus file
+    Uses cluster-aware mapping: a test file is included only if its
+    derived source file belongs to the same cluster as the focus files.
+    Basename matching is kept as the primary discovery mechanism, with
+    cluster-aware refinement filtering out false positives.
 
     Args:
         focus_files: Files in the focused subsystem
@@ -34,21 +80,21 @@ def _find_related_test_files(
     Returns:
         Sorted list of related test file paths
     """
+    # Build reverse mapping: file_path → cluster_id
+    file_to_cluster: dict[str, str] = {}
+    for cluster_id, files in all_clusters.items():
+        for f in files:
+            file_to_cluster[f] = cluster_id
+
+    # Derive focus cluster from the first focus file
+    focus_cluster = file_to_cluster.get(focus_files[0]) if focus_files else None
+
     all_files: set[str] = set()
     for files in all_clusters.values():
         all_files.update(files)
 
-    # Build directory prefixes from focus files
-    # e.g., "src/api/routes.py" → "src", "src/api"
-    focus_dirs: set[str] = set()
-    for f in focus_files:
-        parts = f.split("/")
-        for i in range(1, len(parts)):
-            focus_dirs.add("/".join(parts[:i]))
-
     related: list[str] = []
     for file in all_files:
-        # Skip non-test files
         if (
             not _TEST_FILE_PATTERNS.search(file)
             and "/tests/" not in file
@@ -56,9 +102,6 @@ def _find_related_test_files(
         ):
             continue
 
-        # Normalize test path to source-equivalent form
-        # "tests/api/test_routes.py" → "api/test_routes.py"
-        # "src/tests/api/test_routes.py" → "src/api/test_routes.py"
         if file.startswith("tests/"):
             file_path = file[len("tests/") :]
         elif "/tests/" in file:
@@ -67,29 +110,20 @@ def _find_related_test_files(
             file_path = file
         test_name = file_path.split("/")[-1].replace(".py", "")
 
-        # Extract the subdirectory within tests/ for directory matching
-        # "tests/api/test_routes.py" → "api", "tests/conftest.py" → ""
-        if file.startswith("tests/"):
-            _rest = file[len("tests/") :]
-            test_subdir = _rest.rsplit("/", 1)[0] if "/" in _rest else ""
-        elif "/tests/" in file:
-            test_subdir = file.split("/tests/", 1)[1].rsplit("/", 1)[0]
-        else:
-            test_subdir = ""
+        # Derive source path for cluster-aware check
+        source_path = _test_to_source_path(file)
+        source_cluster = file_to_cluster.get(source_path)
 
         for focus_file in focus_files:
             focus_name = focus_file.split("/")[-1].replace(".py", "")
 
             # Match by basename: "routes" is a substring of "test_routes"
             if focus_name in test_name or test_name in focus_name:
-                related.append(file)
-                break
-
-            # Match by directory: test file's subdirectory matches focus dir
-            # e.g., "tests/api/test_routes.py" shares "api" with "src/api/routes.py"
-            if test_subdir and any(fd.endswith("/" + test_subdir) for fd in focus_dirs):
-                related.append(file)
-                break
+                # Cluster-aware refinement: only include if source
+                # cluster matches the focus cluster
+                if source_cluster == focus_cluster:
+                    related.append(file)
+                    break
 
     return sorted(set(related))
 
