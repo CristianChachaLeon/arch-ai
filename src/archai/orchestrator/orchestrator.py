@@ -4,6 +4,8 @@ This module provides the main orchestrator that connects the middleware
 pipeline with focus resolution to produce architecture-aware context packets.
 """
 
+import asyncio
+
 from archai.http.models import ContextPacket, FileMetadata, SubsystemConstraints
 from archai.middleware.pipeline import PipelineResult
 from archai.orchestrator.focus_resolver import resolve_focus
@@ -16,28 +18,34 @@ class ArchaiOrchestrator:
         """Initialize with an ArchaiMiddleware instance."""
         self.middleware = middleware
         self._cache: dict[str, PipelineResult] = {}
+        self._inflight: dict[str, asyncio.Task] = {}
 
     async def get_context(self, query: str, repo_path: str, force: bool = False) -> ContextPacket:
         """Process a repo and query, return an architecture-governed ContextPacket.
 
         The PipelineResult is cached by repo_path so subsequent queries against
-        the same repo skip the bootstrap + inference pipeline.
-
-        Steps:
-        1. Run middleware.process(repo_path) -> PipelineResult (cached)
-        2. Extract cluster_descriptions from PipelineResult (if labeled_clusters exist)
-        3. Run resolve_focus(query, clusters, descriptions) -> focus, reasoning
-        4. Build subgraph: files from the focused cluster
-        5. Return ContextPacket with focus, reasoning, subgraph, empty constraints
+        the same repo skip the bootstrap + inference pipeline. Concurrent
+        requests for the same repo are de-duplicated via an in-flight task tracker.
 
         Args:
             query: User query to resolve focus for
             repo_path: Path to the repository
             force: If True, bypass cache and re-process the repo
         """
-        if force or repo_path not in self._cache:
-            self._cache[repo_path] = await self.middleware.process(repo_path)
-        pipeline_result = self._cache[repo_path]
+        if force:
+            pipeline_result = await self.middleware.process(repo_path)
+        elif repo_path in self._cache:
+            pipeline_result = self._cache[repo_path]
+        elif repo_path in self._inflight:
+            pipeline_result = await self._inflight[repo_path]
+        else:
+            task = asyncio.ensure_future(self.middleware.process(repo_path))
+            self._inflight[repo_path] = task
+            try:
+                pipeline_result = await task
+            finally:
+                del self._inflight[repo_path]
+            self._cache[repo_path] = pipeline_result
 
         cluster_descriptions = None
         if pipeline_result.labeled_clusters is not None:

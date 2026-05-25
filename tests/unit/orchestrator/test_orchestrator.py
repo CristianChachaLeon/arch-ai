@@ -1,5 +1,6 @@
 """ArchaiOrchestrator - Tests for the full pipeline orchestrator."""
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -139,3 +140,21 @@ class TestArchaiOrchestrator:
             assert isinstance(rf.path, str)
             assert isinstance(rf.reason, str)
             assert isinstance(rf.importance, float)
+
+    async def test_concurrent_requests_dedup_process_call(self, mock_middleware):
+        """Concurrent requests for same repo should call middleware.process() only once."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+
+        repo_path = "/fake/repo"
+        results = await asyncio.gather(
+            orch.get_context("http", repo_path),
+            orch.get_context("auth", repo_path),
+        )
+
+        assert len(results) == 2
+        assert isinstance(results[0], ContextPacket)
+        assert isinstance(results[1], ContextPacket)
+
+        mock_middleware.process.assert_awaited_once()
