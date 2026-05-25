@@ -13,7 +13,12 @@ from archai.middleware.pipeline import PipelineResult
 def base_clusters():
     return {
         "api": ["src/api/routes.py", "src/api/http_handlers.py"],
-        "core": ["src/core/engine.py", "src/core/models.py"],
+        "core": ["src/core/engine.py", "src/core/models.py", "tests/core/test_engine.py"],
+        "tests": [
+            "tests/api/test_routes.py",
+            "tests/api/test_http_handlers.py",
+            "tests/api/test_integration.py",
+        ],
     }
 
 
@@ -24,9 +29,9 @@ def mock_middleware(base_clusters):
         repo_path="/fake/repo",
         graph=AsyncMock(),
         clusters=base_clusters,
-        file_count=4,
+        file_count=8,
         edge_count=3,
-        cluster_count=2,
+        cluster_count=3,
         labeled_clusters=None,
     )
     m.process.return_value = result
@@ -87,9 +92,9 @@ class TestArchaiOrchestrator:
             repo_path="/fake/repo",
             graph=AsyncMock(),
             clusters=base_clusters,
-            file_count=4,
+            file_count=8,
             edge_count=3,
-            cluster_count=2,
+            cluster_count=3,
             labeled_clusters=labeled,
         )
         m.process.return_value = result
@@ -132,7 +137,7 @@ class TestArchaiOrchestrator:
         assert isinstance(packet.metadata, dict)
 
         assert packet.metadata.get("source") == "orchestrator"
-        assert packet.metadata.get("cluster_count") == 2
+        assert packet.metadata.get("cluster_count") == 3
 
         if packet.relevant_files:
             rf = packet.relevant_files[0]
@@ -140,6 +145,56 @@ class TestArchaiOrchestrator:
             assert isinstance(rf.path, str)
             assert isinstance(rf.reason, str)
             assert isinstance(rf.importance, float)
+
+    async def test_context_includes_related_test_files(self, mock_middleware):
+        """Test files related to focus should appear in relevant_files."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        packet = await orch.get_context("http handler", "/fake/repo")
+
+        test_file_paths = [rf.path for rf in packet.relevant_files]
+        assert "tests/api/test_routes.py" in test_file_paths
+        assert "tests/api/test_http_handlers.py" in test_file_paths
+
+    async def test_subgraph_includes_test_files(self, mock_middleware):
+        """Test files should also appear in subgraph."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        packet = await orch.get_context("http handler", "/fake/repo")
+
+        assert "tests/api/test_routes.py" in packet.subgraph
+
+    async def test_unrelated_test_files_excluded(self, mock_middleware):
+        """Test files from other subsystems should not appear."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        packet = await orch.get_context("http handler", "/fake/repo")
+
+        test_file_paths = [rf.path for rf in packet.relevant_files]
+        assert "tests/core/test_engine.py" not in test_file_paths
+
+    async def test_test_files_match_by_directory_when_basename_differs(self, mock_middleware):
+        """Test files should match by directory even when basenames don't overlap."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        packet = await orch.get_context("http handler", "/fake/repo")
+
+        test_file_paths = [rf.path for rf in packet.relevant_files]
+        assert "tests/api/test_integration.py" in test_file_paths
+
+    async def test_unknown_focus_has_no_test_files(self, mock_middleware):
+        """Unknown focus should have empty subgraph and no test files."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        packet = await orch.get_context("nonexistent", "/fake/repo")
+
+        assert packet.focus == "unknown"
+        assert packet.subgraph == []
 
     async def test_concurrent_requests_dedup_process_call(self, mock_middleware):
         """Concurrent requests for same repo should call middleware.process() only once."""
