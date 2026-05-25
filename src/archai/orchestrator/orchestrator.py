@@ -49,13 +49,33 @@ def _find_related_test_files(
     related: list[str] = []
     for file in all_files:
         # Skip non-test files
-        if not _TEST_FILE_PATTERNS.search(file) and "/tests/" not in file:
+        if (
+            not _TEST_FILE_PATTERNS.search(file)
+            and "/tests/" not in file
+            and not file.startswith("tests/")
+        ):
             continue
 
-        # Transform test path to source-equivalent form
-        # e.g., "tests/api/test_routes.py" → "api/test_routes.py"
-        file_path = file.replace("/tests/", "/", 1) if "/tests/" in file else file
+        # Normalize test path to source-equivalent form
+        # "tests/api/test_routes.py" → "api/test_routes.py"
+        # "src/tests/api/test_routes.py" → "src/api/test_routes.py"
+        if file.startswith("tests/"):
+            file_path = file[len("tests/") :]
+        elif "/tests/" in file:
+            file_path = file.replace("/tests/", "/", 1)
+        else:
+            file_path = file
         test_name = file_path.split("/")[-1].replace(".py", "")
+
+        # Extract the subdirectory within tests/ for directory matching
+        # "tests/api/test_routes.py" → "api", "tests/conftest.py" → ""
+        if file.startswith("tests/"):
+            _rest = file[len("tests/") :]
+            test_subdir = _rest.rsplit("/", 1)[0] if "/" in _rest else ""
+        elif "/tests/" in file:
+            test_subdir = file.split("/tests/", 1)[1].rsplit("/", 1)[0]
+        else:
+            test_subdir = ""
 
         for focus_file in focus_files:
             focus_name = focus_file.split("/")[-1].replace(".py", "")
@@ -67,11 +87,9 @@ def _find_related_test_files(
 
             # Match by directory: test file's subdirectory matches focus dir
             # e.g., "tests/api/test_routes.py" shares "api" with "src/api/routes.py"
-            if "/tests/" in file:
-                test_subdir = file.split("/tests/", 1)[1].rsplit("/", 1)[0]
-                if test_subdir and any(fd.endswith("/" + test_subdir) for fd in focus_dirs):
-                    related.append(file)
-                    break
+            if test_subdir and any(fd.endswith("/" + test_subdir) for fd in focus_dirs):
+                related.append(file)
+                break
 
     return sorted(set(related))
 

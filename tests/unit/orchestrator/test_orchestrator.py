@@ -13,16 +13,11 @@ from archai.middleware.pipeline import PipelineResult
 def base_clusters():
     return {
         "api": ["src/api/routes.py", "src/api/http_handlers.py"],
-        "core": ["src/core/engine.py", "src/core/models.py"],
-        "api-tests": [
+        "core": ["src/core/engine.py", "src/core/models.py", "tests/core/test_engine.py"],
+        "tests": [
             "tests/api/test_routes.py",
             "tests/api/test_http_handlers.py",
             "tests/api/test_integration.py",
-            "tests/conftest.py",
-        ],
-        "core-tests": [
-            "tests/core/test_engine.py",
-            "tests/conftest.py",
         ],
     }
 
@@ -34,9 +29,9 @@ def mock_middleware(base_clusters):
         repo_path="/fake/repo",
         graph=AsyncMock(),
         clusters=base_clusters,
-        file_count=10,
+        file_count=8,
         edge_count=3,
-        cluster_count=4,
+        cluster_count=3,
         labeled_clusters=None,
     )
     m.process.return_value = result
@@ -97,9 +92,9 @@ class TestArchaiOrchestrator:
             repo_path="/fake/repo",
             graph=AsyncMock(),
             clusters=base_clusters,
-            file_count=10,
+            file_count=8,
             edge_count=3,
-            cluster_count=4,
+            cluster_count=3,
             labeled_clusters=labeled,
         )
         m.process.return_value = result
@@ -142,7 +137,7 @@ class TestArchaiOrchestrator:
         assert isinstance(packet.metadata, dict)
 
         assert packet.metadata.get("source") == "orchestrator"
-        assert packet.metadata.get("cluster_count") == 4
+        assert packet.metadata.get("cluster_count") == 3
 
         if packet.relevant_files:
             rf = packet.relevant_files[0]
@@ -156,7 +151,7 @@ class TestArchaiOrchestrator:
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
 
         orch = ArchaiOrchestrator(mock_middleware)
-        packet = await orch.get_context("api", "/fake/repo")
+        packet = await orch.get_context("http handler", "/fake/repo")
 
         test_file_paths = [rf.path for rf in packet.relevant_files]
         assert "tests/api/test_routes.py" in test_file_paths
@@ -167,7 +162,7 @@ class TestArchaiOrchestrator:
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
 
         orch = ArchaiOrchestrator(mock_middleware)
-        packet = await orch.get_context("api", "/fake/repo")
+        packet = await orch.get_context("http handler", "/fake/repo")
 
         assert "tests/api/test_routes.py" in packet.subgraph
 
@@ -176,7 +171,7 @@ class TestArchaiOrchestrator:
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
 
         orch = ArchaiOrchestrator(mock_middleware)
-        packet = await orch.get_context("api", "/fake/repo")
+        packet = await orch.get_context("http handler", "/fake/repo")
 
         test_file_paths = [rf.path for rf in packet.relevant_files]
         assert "tests/core/test_engine.py" not in test_file_paths
@@ -186,7 +181,7 @@ class TestArchaiOrchestrator:
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
 
         orch = ArchaiOrchestrator(mock_middleware)
-        packet = await orch.get_context("api", "/fake/repo")
+        packet = await orch.get_context("http handler", "/fake/repo")
 
         test_file_paths = [rf.path for rf in packet.relevant_files]
         assert "tests/api/test_integration.py" in test_file_paths
