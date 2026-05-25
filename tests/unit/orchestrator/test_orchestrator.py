@@ -67,6 +67,45 @@ class TestArchaiOrchestrator:
         assert "src/api/http_handlers.py" in packet.subgraph
         assert "src/core/engine.py" not in packet.subgraph
 
+    async def test_get_context_focus_is_semantic_label(self, base_clusters):
+        """Focus should be the semantic label from LabeledCluster.name, not the raw cluster ID."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+        from archai.inference.labeler import LabeledCluster
+
+        labeled = [
+            LabeledCluster(
+                cluster_id="api",
+                files=["src/api/routes.py", "src/api/http_handlers.py"],
+                name="API Layer",
+                description="HTTP API endpoints and routing",
+                reasoning="Contains HTTP handlers and route definitions",
+            ),
+            LabeledCluster(
+                cluster_id="core",
+                files=["src/core/engine.py", "src/core/models.py"],
+                name="Core Engine",
+                description="Core business logic and data models",
+                reasoning="Contains engine and model definitions",
+            ),
+        ]
+        m = AsyncMock()
+        result = PipelineResult(
+            repo_path="/fake/repo",
+            graph=AsyncMock(),
+            clusters=base_clusters,
+            file_count=8,
+            edge_count=3,
+            cluster_count=3,
+            labeled_clusters=labeled,
+        )
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        packet = await orch.get_context("data models", "/fake/repo")
+
+        assert packet.focus == "Core Engine"
+        assert packet.focus != "core"
+
     async def test_get_context_with_labeled_clusters(self, base_clusters):
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
         from archai.inference.labeler import LabeledCluster
@@ -102,8 +141,8 @@ class TestArchaiOrchestrator:
         orch = ArchaiOrchestrator(m)
         packet = await orch.get_context("data models", "/fake/repo")
 
-        assert packet.focus == "core"
-        assert "core" in packet.focus_reasoning.lower()
+        assert packet.focus == "Core Engine"
+        assert isinstance(packet.focus_reasoning, str) and len(packet.focus_reasoning) > 0
 
     async def test_get_context_without_labeled_clusters(self, mock_middleware):
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
