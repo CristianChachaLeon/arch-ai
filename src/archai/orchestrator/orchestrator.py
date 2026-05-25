@@ -5,10 +5,75 @@ pipeline with focus resolution to produce architecture-aware context packets.
 """
 
 import asyncio
+import re
 
 from archai.http.models import ContextPacket, FileMetadata, SubsystemConstraints
 from archai.middleware.pipeline import PipelineResult
 from archai.orchestrator.focus_resolver import resolve_focus
+
+# Regex patterns for test file detection
+_TEST_FILE_PATTERNS = re.compile(r"(test_.*\.py|.*_test\.py|conftest\.py)$")
+
+
+def _find_related_test_files(
+    focus_files: list[str],
+    all_clusters: dict[str, list[str]],
+) -> list[str]:
+    """Find test files related to the focus subsystem.
+
+    A test file is considered related if:
+    - Its name matches test patterns (test_*.py, *_test.py, conftest.py)
+    - It's inside a tests/ directory
+    - Its basename (after removing test_ prefix) matches a focus file basename
+      OR it shares a directory prefix with a focus file
+
+    Args:
+        focus_files: Files in the focused subsystem
+        all_clusters: All clusters from the pipeline result
+
+    Returns:
+        Sorted list of related test file paths
+    """
+    all_files: set[str] = set()
+    for files in all_clusters.values():
+        all_files.update(files)
+
+    # Build directory prefixes from focus files
+    # e.g., "src/api/routes.py" → "src", "src/api"
+    focus_dirs: set[str] = set()
+    for f in focus_files:
+        parts = f.split("/")
+        for i in range(1, len(parts)):
+            focus_dirs.add("/".join(parts[:i]))
+
+    related: list[str] = []
+    for file in all_files:
+        # Skip non-test files
+        if not _TEST_FILE_PATTERNS.search(file) and "/tests/" not in file:
+            continue
+
+        # Transform test path to source-equivalent form
+        # e.g., "tests/api/test_routes.py" → "api/test_routes.py"
+        file_path = file.replace("/tests/", "/", 1) if "/tests/" in file else file
+        test_name = file_path.split("/")[-1].replace(".py", "")
+
+        for focus_file in focus_files:
+            focus_name = focus_file.split("/")[-1].replace(".py", "")
+
+            # Match by basename: "routes" is a substring of "test_routes"
+            if focus_name in test_name or test_name in focus_name:
+                related.append(file)
+                break
+
+            # Match by directory: test file's subdirectory matches focus dir
+            # e.g., "tests/api/test_routes.py" shares "api" with "src/api/routes.py"
+            if "/tests/" in file:
+                test_subdir = file.split("/tests/", 1)[1].rsplit("/", 1)[0]
+                if test_subdir and any(fd.endswith("/" + test_subdir) for fd in focus_dirs):
+                    related.append(file)
+                    break
+
+    return sorted(set(related))
 
 
 class ArchaiOrchestrator:
@@ -65,10 +130,21 @@ class ArchaiOrchestrator:
 
         subgraph = pipeline_result.clusters.get(focus, [])
 
+        # Find related test files across all clusters and include them
+        test_files = _find_related_test_files(subgraph, pipeline_result.clusters)
+        all_focus_files = list(subgraph) + test_files
+
         relevant_files = [
             FileMetadata(path=file, reason="part of focus subsystem", importance=1.0)
             for file in subgraph
         ]
+        if test_files:
+            relevant_files.extend(
+                [
+                    FileMetadata(path=tf, reason="related test file", importance=0.8)
+                    for tf in test_files
+                ]
+            )
 
         constraints = SubsystemConstraints()
 
@@ -81,7 +157,7 @@ class ArchaiOrchestrator:
             focus=focus,
             focus_reasoning=focus_reasoning,
             constraints=constraints,
-            subgraph=subgraph,
+            subgraph=all_focus_files,
             relevant_files=relevant_files,
             metadata=metadata,
         )
