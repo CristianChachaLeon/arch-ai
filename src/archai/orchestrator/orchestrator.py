@@ -33,7 +33,11 @@ class ArchaiOrchestrator:
             force: If True, bypass cache and re-process the repo
         """
         if force:
+            if repo_path in self._inflight:
+                self._inflight[repo_path].cancel()
+                del self._inflight[repo_path]
             pipeline_result = await self.middleware.process(repo_path)
+            self._cache[repo_path] = pipeline_result
         elif repo_path in self._cache:
             pipeline_result = self._cache[repo_path]
         elif repo_path in self._inflight:

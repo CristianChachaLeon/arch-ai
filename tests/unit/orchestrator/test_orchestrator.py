@@ -158,3 +158,25 @@ class TestArchaiOrchestrator:
         assert isinstance(results[1], ContextPacket)
 
         mock_middleware.process.assert_awaited_once()
+
+    async def test_force_bypasses_cache_and_updates_it(self, mock_middleware):
+        """force=True should bypass cache, process again, and persist result."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+
+        # First call populates cache
+        await orch.get_context("http", "/fake/repo")
+        assert mock_middleware.process.await_count == 1
+
+        # Second call without force uses cache
+        await orch.get_context("auth", "/fake/repo")
+        assert mock_middleware.process.await_count == 1  # Cache hit
+
+        # Third call with force bypasses cache and updates it
+        await orch.get_context("db", "/fake/repo", force=True)
+        assert mock_middleware.process.await_count == 2  # Fresh process
+
+        # Fourth call without force uses updated cache
+        await orch.get_context("cache", "/fake/repo")
+        assert mock_middleware.process.await_count == 2  # Cache hit again
