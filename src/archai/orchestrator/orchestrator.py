@@ -71,6 +71,16 @@ class ArchaiOrchestrator:
         ]
 
         constraints = SubsystemConstraints()
+        if pipeline_result.labeled_clusters is not None:
+            for lc in pipeline_result.labeled_clusters:
+                if lc.cluster_id == focus:
+                    constraints = SubsystemConstraints(
+                        async_only=lc.async_only,
+                        no_blocking_io=lc.no_blocking_io,
+                        forbidden_dependencies=lc.forbidden_dependencies,
+                        allowed_dependencies=lc.allowed_dependencies,
+                    )
+                    break
 
         metadata = {
             "source": "orchestrator",

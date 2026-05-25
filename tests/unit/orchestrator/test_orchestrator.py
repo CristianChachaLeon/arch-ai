@@ -159,6 +159,75 @@ class TestArchaiOrchestrator:
 
         mock_middleware.process.assert_awaited_once()
 
+    async def test_constraints_populated_from_labeled_clusters(self, base_clusters):
+        """Constraints should be populated from the LabeledCluster matching focus."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+        from archai.inference.labeler import LabeledCluster
+
+        labeled = [
+            LabeledCluster(
+                cluster_id="api",
+                files=["src/api/routes.py"],
+                name="API Layer",
+                description="HTTP API endpoints",
+                reasoning="Contains HTTP handlers",
+                async_only=True,
+                forbidden_dependencies=["src/legacy/"],
+            ),
+            LabeledCluster(
+                cluster_id="core",
+                files=["src/core/engine.py"],
+                name="Core Engine",
+                description="Core business logic",
+                reasoning="Contains engine",
+                no_blocking_io=True,
+                allowed_dependencies=["src/common/"],
+            ),
+        ]
+        m = AsyncMock()
+        result = PipelineResult(
+            repo_path="/fake/repo",
+            graph=AsyncMock(),
+            clusters=base_clusters,
+            file_count=4,
+            edge_count=3,
+            cluster_count=2,
+            labeled_clusters=labeled,
+        )
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        packet = await orch.get_context("http", "/fake/repo")
+
+        # Focus matched "api" cluster → should use api LabeledCluster constraints
+        assert packet.constraints.async_only is True
+        assert packet.constraints.forbidden_dependencies == ["src/legacy/"]
+        # These should remain default since api LabeledCluster didn't set them
+        assert packet.constraints.no_blocking_io is False
+        assert packet.constraints.allowed_dependencies == []
+
+    async def test_constraints_empty_without_labeled_clusters(self, mock_middleware):
+        """Without labeled clusters, constraints should be empty defaults."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        packet = await orch.get_context("http", "/fake/repo")
+
+        assert packet.constraints.async_only is False
+        assert packet.constraints.no_blocking_io is False
+        assert packet.constraints.forbidden_dependencies == []
+        assert packet.constraints.allowed_dependencies == []
+
+    async def test_constraints_default_for_unknown_focus(self, mock_middleware):
+        """Unknown focus should still return valid (empty) constraints."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        packet = await orch.get_context("zzzznonexistent", "/fake/repo")
+
+        assert isinstance(packet.constraints, SubsystemConstraints)
+        assert packet.constraints.async_only is False
+
     async def test_force_bypasses_cache_and_updates_it(self, mock_middleware):
         """force=True should bypass cache, process again, and persist result."""
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
