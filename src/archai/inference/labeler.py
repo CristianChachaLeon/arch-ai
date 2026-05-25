@@ -6,7 +6,7 @@ meaningful names and descriptions for each logical subsystem.
 
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import asyncio
 
@@ -15,7 +15,13 @@ from archai.inference.llm.base import LLMProvider
 CLUSTER_SYSTEM_PROMPT = (
     "You are a software architect analyzing a codebase. "
     "Given a set of files that form a logical subsystem, "
-    "name it and describe its purpose concisely."
+    "name it and describe its purpose concisely. "
+    "Also infer architectural constraints for this subsystem:\n"
+    "- async_only: Whether this subsystem REQUIRES async/await patterns\n"
+    "- no_blocking_io: Whether this subsystem must avoid blocking I/O calls\n"
+    "- forbidden_dependencies: List of modules/packages this subsystem must NOT import\n"
+    "- allowed_dependencies: List of modules/packages this subsystem is ALLOWED to import\n"
+    "Set boolean fields to true only if there's clear evidence in the files."
 )
 
 CLUSTER_USER_PROMPT = (
@@ -33,6 +39,10 @@ class ClusterLabel(BaseModel):
     name: str
     description: str
     reasoning: str
+    async_only: bool = False
+    no_blocking_io: bool = False
+    forbidden_dependencies: list[str] = Field(default_factory=list)
+    allowed_dependencies: list[str] = Field(default_factory=list)
 
 
 class LabeledCluster(BaseModel):
@@ -43,6 +53,10 @@ class LabeledCluster(BaseModel):
     name: str
     description: str
     reasoning: str
+    async_only: bool = False
+    no_blocking_io: bool = False
+    forbidden_dependencies: list[str] = Field(default_factory=list)
+    allowed_dependencies: list[str] = Field(default_factory=list)
 
 
 def _build_cluster_prompt(cluster_id: str, files: list[str]) -> str:
@@ -86,6 +100,10 @@ async def label_clusters(
                 name=label.name,
                 description=label.description,
                 reasoning=label.reasoning,
+                async_only=label.async_only,
+                no_blocking_io=label.no_blocking_io,
+                forbidden_dependencies=label.forbidden_dependencies,
+                allowed_dependencies=label.allowed_dependencies,
             )
 
     tasks = [_label_one(cid, fls) for cid, fls in clusters.items()]
