@@ -154,7 +154,8 @@ async def get_context(request: ContextRequest) -> ContextPacket:
 async def validate_change(request: ValidateChangeRequest) -> ValidateChangeResponse:
     """Validate proposed code changes against architectural constraints."""
     try:
-        result = await orchestrator.validate_changes(request.repo_path, request.changes)
+        repo_path = ProcessRequest.validate_repo_path(request.repo_path)
+        result = await orchestrator.validate_changes(repo_path, request.changes)
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

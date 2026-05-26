@@ -203,13 +203,11 @@ class ArchaiOrchestrator:
                 for dep in cluster.forbidden_dependencies:
                     normalized = dep.rstrip("/").replace("/", ".")
                     if re.search(
-                        rf"(?:^|\n)\s*import\s+{re.escape(normalized)}(?:\s|$|\.)",
+                        rf"(?m)^\s*import\s+{re.escape(normalized)}(?:\s+as\s+\w+)?(?:\s*,|\s*$|\.)",
                         patch,
-                        re.MULTILINE,
                     ) or re.search(
-                        rf"(?:^|\n)\s*from\s+{re.escape(normalized)}(?:\s|\.)",
+                        rf"(?m)^\s*from\s+{re.escape(normalized)}(?:\.|\s+)import\s+",
                         patch,
-                        re.MULTILINE,
                     ):
                         violations.append(
                             Violation(
