@@ -176,6 +176,13 @@ class ArchaiOrchestrator:
                     )
                     break
 
+        # Map focus from cluster ID to semantic label for the response
+        if pipeline_result.labeled_clusters is not None:
+            for lc in pipeline_result.labeled_clusters:
+                if lc.cluster_id == focus:
+                    focus = lc.name
+                    break
+
         metadata = {
             "source": "orchestrator",
             "cluster_count": len(pipeline_result.clusters),
