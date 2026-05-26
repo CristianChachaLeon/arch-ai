@@ -38,6 +38,47 @@ def mock_middleware(base_clusters):
     return m
 
 
+@pytest.fixture
+def cluster_aware_clusters():
+    return {
+        "cluster_1": [
+            "src/api/routes.py",
+            "src/api/http_handlers.py",
+            "src/common/engine.py",
+        ],
+        "cluster_2": ["src/core/engine.py"],
+        "cluster_0": [
+            "tests/api/test_routes.py",  # source → cluster_1
+            "tests/api/test_http_handlers.py",  # source → cluster_1
+            "tests/common/test_engine.py",  # source → cluster_1
+            "tests/core/test_engine.py",  # source → cluster_2
+            "tests/api/test_integration.py",  # source → no cluster
+            # NEW: inline test cases
+            "src/api/tests/test_routes.py",  # /tests/ strip → src/api/routes.py → cluster_1 ✅
+            "src/api/test_routes.py",  # inline → src/api/routes.py → cluster_1 ✅
+            "src/core/tests/test_engine.py",  # /tests/ strip → src/core/engine.py → cluster_2 ✅
+            "src/core/test_engine.py",  # inline → src/core/engine.py → cluster_2 ✅
+            "src/other/test_unrelated.py",  # inline → src/other/unrelated.py → no cluster ❌
+        ],
+    }
+
+
+@pytest.fixture
+def cluster_aware_middleware(cluster_aware_clusters):
+    m = AsyncMock()
+    result = PipelineResult(
+        repo_path="/fake/repo",
+        graph=AsyncMock(),
+        clusters=cluster_aware_clusters,
+        file_count=9,
+        edge_count=3,
+        cluster_count=3,
+        labeled_clusters=None,
+    )
+    m.process.return_value = result
+    return m
+
+
 class TestArchaiOrchestrator:
     """Test suite for ArchaiOrchestrator."""
 
@@ -215,15 +256,69 @@ class TestArchaiOrchestrator:
         test_file_paths = [rf.path for rf in packet.relevant_files]
         assert "tests/core/test_engine.py" not in test_file_paths
 
-    async def test_test_files_match_by_directory_when_basename_differs(self, mock_middleware):
-        """Test files should match by directory even when basenames don't overlap."""
+    def test_find_related_test_files_cluster_aware(self, cluster_aware_clusters):
+        """Only test files whose source cluster matches the focus cluster should be included."""
+        from archai.orchestrator.orchestrator import _find_related_test_files
+
+        focus_files = cluster_aware_clusters["cluster_1"]
+        result = _find_related_test_files(focus_files, cluster_aware_clusters)
+
+        assert "tests/api/test_routes.py" in result
+        assert "tests/api/test_http_handlers.py" in result
+        assert "tests/common/test_engine.py" in result
+        assert "tests/core/test_engine.py" not in result
+        assert "tests/api/test_integration.py" not in result
+
+    def test_inline_tests_in_src_mapped_correctly(self, cluster_aware_clusters):
+        """Inline tests inside src/ should be correctly mapped to their source clusters."""
+        from archai.orchestrator.orchestrator import _find_related_test_files
+
+        # Focus on cluster_1 → should include src/api/tests/test_routes.py and src/api/test_routes.py
+        focus_1 = cluster_aware_clusters["cluster_1"]
+        result_1 = _find_related_test_files(focus_1, cluster_aware_clusters)
+        assert "src/api/tests/test_routes.py" in result_1
+        assert "src/api/test_routes.py" in result_1
+
+        # Focus on cluster_2 → should include src/core/test_engine.py
+        focus_2 = cluster_aware_clusters["cluster_2"]
+        result_2 = _find_related_test_files(focus_2, cluster_aware_clusters)
+        assert "src/core/test_engine.py" in result_2
+        assert "src/core/tests/test_engine.py" in result_2
+
+        # src/other/test_unrelated.py → src/other/unrelated.py → no cluster → excluded
+        assert "src/other/test_unrelated.py" not in result_1
+        assert "src/other/test_unrelated.py" not in result_2
+
+        # Existing tests still pass
+        assert "tests/api/test_routes.py" in result_1
+        assert "tests/core/test_engine.py" not in result_1
+        assert "tests/core/test_engine.py" in result_2
+
+    async def test_cluster_aware_filters_via_orchestrator(self, cluster_aware_middleware):
+        """Orchestrator should only include tests whose source cluster matches focus."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(cluster_aware_middleware)
+        packet = await orch.get_context("http_handlers", "/fake/repo")
+
+        test_file_paths = [rf.path for rf in packet.relevant_files]
+        assert "tests/api/test_routes.py" in test_file_paths
+        assert "tests/api/test_http_handlers.py" in test_file_paths
+        assert "tests/common/test_engine.py" in test_file_paths
+        assert "tests/core/test_engine.py" not in test_file_paths
+        assert "tests/api/test_integration.py" not in test_file_paths
+
+    async def test_test_files_excluded_when_source_has_no_cluster(self, mock_middleware):
+        """Test files whose source file isn't in any cluster should be excluded."""
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
 
         orch = ArchaiOrchestrator(mock_middleware)
         packet = await orch.get_context("http handler", "/fake/repo")
 
         test_file_paths = [rf.path for rf in packet.relevant_files]
-        assert "tests/api/test_integration.py" in test_file_paths
+        # tests/api/test_integration.py maps to src/api/integration.py which
+        # doesn't exist in any cluster → excluded by cluster-aware refinement
+        assert "tests/api/test_integration.py" not in test_file_paths
 
     async def test_unknown_focus_has_no_test_files(self, mock_middleware):
         """Unknown focus should have empty subgraph and no test files."""
