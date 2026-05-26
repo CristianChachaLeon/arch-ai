@@ -150,6 +150,8 @@ class ArchaiOrchestrator:
 
         # Find related test files across all clusters and include them
         test_files = _find_related_test_files(subgraph, pipeline_result.clusters)
+        # Remove duplicates: test files already in the focus subgraph
+        test_files = [tf for tf in test_files if tf not in subgraph]
         all_focus_files = list(subgraph) + test_files
 
         relevant_files = [
