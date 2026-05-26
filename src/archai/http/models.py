@@ -76,6 +76,26 @@ class ChangeItem(BaseModel):
     change_type: Optional[str] = None
 
 
+class BlastRadiusResponse(BaseModel):
+    """Response for blast radius analysis of a file change."""
+
+    focus_file: str
+    direct_dependents: list[str] = Field(
+        default_factory=list,
+        description="Files that directly import the focus file (would break if API changes)",
+    )
+    direct_dependencies: list[str] = Field(
+        default_factory=list, description="Files that the focus file directly imports"
+    )
+    transitive_dependents: list[str] = Field(
+        default_factory=list,
+        description="Files that transitively depend on the focus file (beyond direct)",
+    )
+    subsystems_affected: dict[str, int] = Field(
+        default_factory=dict, description="Subsystem names mapped to count of affected files"
+    )
+
+
 class ValidateChangeRequest(BaseModel):
     """Request for validating code changes."""
 

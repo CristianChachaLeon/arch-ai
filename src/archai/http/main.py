@@ -13,6 +13,7 @@ from pydantic import BaseModel, field_validator
 
 from archai.config.logging import setup_logging
 from archai.http.models import (
+    BlastRadiusResponse,
     ContextPacket,
     ValidateChangeRequest,
     ValidateChangeResponse,
@@ -107,6 +108,48 @@ class ProcessResponse(BaseModel):
     cluster_reasonings: dict | None = None
 
 
+class BlastRadiusRequest(BaseModel):
+    repo_path: str
+    file_path: str
+    depth: int = 2
+
+    @field_validator("repo_path")
+    @classmethod
+    def validate_repo_path(cls, v: str) -> str:
+        """Validate and normalize repo_path against allowed root (fail-closed)."""
+        resolved_path = Path(v).resolve()
+
+        if ALLOWED_REPO_ROOT is not None:
+            allowed_root = Path(ALLOWED_REPO_ROOT).resolve()
+            if not resolved_path.is_relative_to(allowed_root):
+                raise ValueError(
+                    f"repo_path must be within allowed root: {allowed_root}. "
+                    f"Got: {resolved_path}"
+                )
+        elif not ALLOW_UNSAFE:
+            raise ValueError(
+                "ARCHAI_ALLOWED_REPO_ROOT is not set. "
+                "Set it to a safe repo root, or set "
+                "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
+            )
+
+        return str(resolved_path)
+
+    @field_validator("file_path")
+    @classmethod
+    def validate_file_path(cls, v: str) -> str:
+        if not v.endswith(".py"):
+            raise ValueError("file_path must be a Python file (.py)")
+        return v
+
+    @field_validator("depth")
+    @classmethod
+    def validate_depth(cls, v: int) -> int:
+        if v < 1 or v > 5:
+            raise ValueError("depth must be between 1 and 5")
+        return v
+
+
 @app.get("/health")
 def health_check() -> JSONResponse:
     """Health check endpoint."""
@@ -166,3 +209,19 @@ async def validate_change(request: ValidateChangeRequest) -> ValidateChangeRespo
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Validation error: {str(e)}") from e
+
+
+@app.post("/blast-radius", response_model=BlastRadiusResponse)
+async def get_blast_radius(request: BlastRadiusRequest) -> BlastRadiusResponse:
+    """Analyze the blast radius of changing a file."""
+    try:
+        result = await orchestrator.get_blast_radius(
+            request.repo_path, request.file_path, request.depth
+        )
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Blast radius error: {str(e)}") from e

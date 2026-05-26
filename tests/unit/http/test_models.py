@@ -4,6 +4,9 @@ Tests: Pydantic request/response models.
 These tests verify the structure of API models for the ArchAI HTTP service.
 """
 
+import importlib
+import os
+
 import pytest
 from pydantic import ValidationError
 
@@ -196,6 +199,120 @@ class TestValidateChangeRequest:
         assert request.changes[0].file_path == "src/main.py"
         assert request.changes[0].patch == "@@ -1,3 +1,4 @@\n+import fastapi"
         assert request.changes[0].change_type == "modify"
+
+
+class TestBlastRadiusRequest:
+    """Tests for BlastRadiusRequest validation."""
+
+    def test_valid_request(self):
+        """Test creating a valid blast radius request."""
+        from archai.http.main import BlastRadiusRequest
+
+        request = BlastRadiusRequest(
+            repo_path="/fake/repo",
+            file_path="src/core/engine.py",
+            depth=2,
+        )
+        assert request.repo_path == "/fake/repo"
+        assert request.file_path == "src/core/engine.py"
+        assert request.depth == 2
+
+    def test_file_path_must_end_with_py(self):
+        """Test that file_path must end with .py."""
+        from archai.http.main import BlastRadiusRequest
+
+        with pytest.raises(ValidationError, match="must be a Python file"):
+            BlastRadiusRequest(
+                repo_path="/fake/repo",
+                file_path="src/core/engine.ts",
+            )
+
+    def test_depth_minimum(self):
+        """Test that depth must be at least 1."""
+        from archai.http.main import BlastRadiusRequest
+
+        with pytest.raises(ValidationError, match="depth must be between 1 and 5"):
+            BlastRadiusRequest(
+                repo_path="/fake/repo",
+                file_path="src/core/engine.py",
+                depth=0,
+            )
+
+    def test_depth_maximum(self):
+        """Test that depth must be at most 5."""
+        from archai.http.main import BlastRadiusRequest
+
+        with pytest.raises(ValidationError, match="depth must be between 1 and 5"):
+            BlastRadiusRequest(
+                repo_path="/fake/repo",
+                file_path="src/core/engine.py",
+                depth=6,
+            )
+
+    def test_depth_defaults_to_two(self):
+        """Test that depth defaults to 2."""
+        from archai.http.main import BlastRadiusRequest
+
+        request = BlastRadiusRequest(
+            repo_path="/fake/repo",
+            file_path="src/core/engine.py",
+        )
+        assert request.depth == 2
+
+
+class TestBlastRadiusRequestRepoPathGuard:
+    """Tests for BlastRadiusRequest.repo_path validation guard."""
+
+    @staticmethod
+    def _reload_blast_request(**env):
+        """Force reimport of archai.http.main with given env vars, return BlastRadiusRequest."""
+        import sys
+
+        saved = {}
+        for k, v in env.items():
+            saved[k] = os.environ.get(k)
+            os.environ[k] = v
+
+        # Unset unsafe so guard is active
+        saved_unsafe = os.environ.pop("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", None)
+
+        try:
+            for key in list(sys.modules):
+                if key.startswith("archai.http.main"):
+                    del sys.modules[key]
+            from archai.http.main import BlastRadiusRequest as B  # noqa: F811
+
+            return B
+        finally:
+            # Restore env
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+            if saved_unsafe is not None:
+                os.environ["ARCHAI_ALLOW_UNSAFE_REPO_ROOT"] = saved_unsafe
+
+    def test_inside_allowed_root_passes(self):
+        """Test that repo_path inside ALLOWED_REPO_ROOT is accepted."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            B = self._reload_blast_request(ARCHAI_ALLOWED_REPO_ROOT=tmpdir)
+            req = B(repo_path=tmpdir, file_path="src/core/engine.py", depth=2)
+            assert req.repo_path == tmpdir
+
+    def test_outside_allowed_root_fails(self):
+        """Test that repo_path outside ALLOWED_REPO_ROOT raises ValidationError."""
+        B = self._reload_blast_request(ARCHAI_ALLOWED_REPO_ROOT="/tmp/archai-allowed")
+        with pytest.raises(ValidationError, match="repo_path must be within allowed root"):
+            B(repo_path="/etc/passwd", file_path="src/core/engine.py", depth=2)
+
+    def test_no_allowed_root_and_no_unsafe_fails(self):
+        """Test that without ALLOWED_REPO_ROOT and without unsafe override, it fails closed."""
+        B = self._reload_blast_request()
+        with pytest.raises(ValidationError, match="ARCHAI_ALLOWED_REPO_ROOT is not set"):
+            B(repo_path="/fake/repo", file_path="src/core/engine.py", depth=2)
 
 
 class TestValidateChangeResponse:

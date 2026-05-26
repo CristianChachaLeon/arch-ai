@@ -6,8 +6,10 @@ pipeline with focus resolution to produce architecture-aware context packets.
 
 import asyncio
 import re
+from collections import deque
 
 from archai.http.models import (
+    BlastRadiusResponse,
     ChangeItem,
     ContextPacket,
     FileMetadata,
@@ -153,29 +155,86 @@ class ArchaiOrchestrator:
         self._cache: dict[str, PipelineResult] = {}
         self._inflight: dict[str, asyncio.Task] = {}
 
-    async def _get_pipeline_result(self, repo_path: str, force: bool = False) -> PipelineResult:
-        """Get PipelineResult from cache or by processing the repo.
+    async def get_blast_radius(
+        self, repo_path: str, file_path: str, depth: int = 2
+    ) -> BlastRadiusResponse:
+        """Analyze the blast radius of changing a file.
 
-        Uses the same cache and inflight de-dup as get_context.
+        Computes direct dependents (files that import the given file),
+        direct dependencies (files that the given file imports),
+        transitive dependents (files that indirectly depend on it),
+        and a count of affected files per subsystem.
+
+        Args:
+            repo_path: Path to the repository
+            file_path: The file being changed (relative to repo root)
+            depth: How deep to traverse for transitive dependents (1-5)
+
+        Returns:
+            BlastRadiusResponse with the analysis results
+
+        Raises:
+            ValueError: If file_path is not in the dependency graph
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path)
+        graph = pipeline_result.graph.graph
+
+        if file_path not in graph:
+            raise ValueError(f"File '{file_path}' not found in dependency graph")
+
+        direct_dependents = sorted(graph.predecessors(file_path))
+        direct_dependencies = sorted(graph.successors(file_path))
+        transitive = _get_transitive_dependents(graph, file_path, max_depth=depth)
+
+        # Build file to subsystem name mapping
+        file_to_subsystem = _build_file_to_subsystem(pipeline_result)
+
+        # Count affected files per subsystem
+        all_affected = set(direct_dependents) | set(transitive)
+        subsystems_affected: dict[str, int] = {}
+        for f in sorted(all_affected):
+            sub = file_to_subsystem.get(f, "unknown")
+            subsystems_affected[sub] = subsystems_affected.get(sub, 0) + 1
+
+        return BlastRadiusResponse(
+            focus_file=file_path,
+            direct_dependents=direct_dependents,
+            direct_dependencies=direct_dependencies,
+            transitive_dependents=sorted(transitive),
+            subsystems_affected=dict(sorted(subsystems_affected.items())),
+        )
+
+    async def _get_pipeline_result(self, repo_path: str, force: bool = False) -> PipelineResult:
+        """Get or process the pipeline result for a repo path.
+
+        Uses cache and in-flight task deduplication. If the result is already
+        cached, returns it. If another request is processing this repo, awaits
+        that task. Otherwise, starts a new pipeline process.
+
+        Args:
+            repo_path: Path to the repository
+            force: If True, bypass cache and re-process the repo
         """
         if force:
             if repo_path in self._inflight:
                 self._inflight[repo_path].cancel()
-                del self._inflight[repo_path]
+                self._inflight.pop(repo_path, None)
             pipeline_result = await self.middleware.process(repo_path)
             self._cache[repo_path] = pipeline_result
-        elif repo_path in self._cache:
-            pipeline_result = self._cache[repo_path]
-        elif repo_path in self._inflight:
-            pipeline_result = await self._inflight[repo_path]
-        else:
-            task = asyncio.ensure_future(self.middleware.process(repo_path))
-            self._inflight[repo_path] = task
-            try:
-                pipeline_result = await task
-            finally:
-                del self._inflight[repo_path]
-            self._cache[repo_path] = pipeline_result
+            return pipeline_result
+
+        if repo_path in self._cache:
+            return self._cache[repo_path]
+        if repo_path in self._inflight:
+            return await self._inflight[repo_path]
+
+        task = asyncio.ensure_future(self.middleware.process(repo_path))
+        self._inflight[repo_path] = task
+        try:
+            pipeline_result = await task
+        finally:
+            self._inflight.pop(repo_path, None)
+        self._cache[repo_path] = pipeline_result
         return pipeline_result
 
     async def validate_changes(
@@ -340,3 +399,58 @@ class ArchaiOrchestrator:
             relevant_files=relevant_files,
             metadata=metadata,
         )
+
+
+def _get_transitive_dependents(graph, file: str, max_depth: int) -> set[str]:
+    """Get files that transitively depend on file, up to max_depth.
+
+    Uses BFS following predecessor edges (reverse of import direction).
+    Only includes files at distance >= 2 (beyond direct dependents).
+
+    Args:
+        graph: NetworkX DiGraph where A→B means "A imports B"
+        file: The focus file path
+        max_depth: Maximum distance to traverse
+
+    Returns:
+        Set of file paths that transitively depend on the focus file
+    """
+    result: set[str] = set()
+    visited: set[str] = {file}
+    queue: deque = deque([(file, 0)])
+
+    while queue:
+        current, depth = queue.popleft()
+        if depth >= max_depth:
+            continue
+        for pred in graph.predecessors(current):
+            if pred not in visited:
+                visited.add(pred)
+                next_depth = depth + 1
+                if next_depth > 1:  # Distance >= 2 = transitive
+                    result.add(pred)
+                queue.append((pred, next_depth))
+    return result
+
+
+def _build_file_to_subsystem(pipeline_result: PipelineResult) -> dict[str, str]:
+    """Build a mapping from file path to human-readable subsystem name.
+
+    Uses labeled clusters if available, otherwise falls back to cluster IDs.
+
+    Args:
+        pipeline_result: The pipeline result with clusters and optional labels
+
+    Returns:
+        Dict mapping file path to subsystem name
+    """
+    file_to_subsystem: dict[str, str] = {}
+    if pipeline_result.labeled_clusters:
+        for lc in pipeline_result.labeled_clusters:
+            for f in lc.files:
+                file_to_subsystem[f] = lc.name
+    else:
+        for cluster_id, files in pipeline_result.clusters.items():
+            for f in files:
+                file_to_subsystem[f] = cluster_id
+    return file_to_subsystem
