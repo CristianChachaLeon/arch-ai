@@ -34,9 +34,10 @@ def _strip_test_prefix(filename: str) -> str:
 def _test_to_source_path(test_path: str) -> str:
     """Convert a test file path to its presumed source counterpart.
 
-    "tests/api/test_routes.py" → "src/api/routes.py"
-    "tests/core/test_engine.py" → "src/core/engine.py"
-    "src/tests/api/test_routes.py" → "src/api/routes.py"
+    "tests/api/test_routes.py"         → "src/api/routes.py"
+    "src/tests/api/test_routes.py"     → "src/api/routes.py"
+    "src/api/tests/test_routes.py"     → "src/api/routes.py"
+    "src/api/test_routes.py"           → "src/api/routes.py"
 
     Args:
         test_path: Path to a test file
@@ -45,21 +46,25 @@ def _test_to_source_path(test_path: str) -> str:
         Presumed source file path
     """
     if test_path.startswith("tests/"):
+        # tests/api/test_routes.py → api/test_routes.py → src/api/routes.py
         rel = test_path[len("tests/") :]
-    elif "/tests/" in test_path:
+        dir_part, filename = rel.rsplit("/", 1) if "/" in rel else ("", rel)
+        source_filename = _strip_test_prefix(filename)
+        return f"src/{dir_part}/{source_filename}" if dir_part else f"src/{source_filename}"
+
+    if "/tests/" in test_path:
+        # src/api/tests/test_routes.py → src/api/test_routes.py → src/api/routes.py
+        # src/tests/api/test_routes.py → src/api/test_routes.py → src/api/routes.py
         rel = test_path.replace("/tests/", "/", 1)
-    else:
-        rel = test_path
+        dir_part, filename = rel.rsplit("/", 1) if "/" in rel else ("", rel)
+        source_filename = _strip_test_prefix(filename)
+        return f"{dir_part}/{source_filename}"
 
-    if "/" in rel:
-        dir_part, filename = rel.rsplit("/", 1)
-    else:
-        dir_part, filename = "", rel
-
+    # Inline case: src/api/test_routes.py → src/api/routes.py
+    # Already in its source location, just strip the test_ prefix
+    dir_part, filename = test_path.rsplit("/", 1) if "/" in test_path else ("", test_path)
     source_filename = _strip_test_prefix(filename)
-    if dir_part:
-        return f"src/{dir_part}/{source_filename}"
-    return f"src/{source_filename}"
+    return f"{dir_part}/{source_filename}" if dir_part else source_filename
 
 
 def _find_related_test_files(
