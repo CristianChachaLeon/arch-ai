@@ -227,7 +227,7 @@ class TestArchaiOrchestrator:
             assert isinstance(rf.importance, float)
 
     async def test_context_includes_related_test_files(self, mock_middleware):
-        """Test files related to focus should appear in relevant_files."""
+        """Test files related to focus should appear in relevant_files, without duplication."""
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
 
         orch = ArchaiOrchestrator(mock_middleware)
@@ -236,6 +236,9 @@ class TestArchaiOrchestrator:
         test_file_paths = [rf.path for rf in packet.relevant_files]
         assert "tests/api/test_routes.py" in test_file_paths
         assert "tests/api/test_http_handlers.py" in test_file_paths
+
+        # Verify no duplicate paths in relevant_files
+        assert len(test_file_paths) == len(set(test_file_paths))
 
     async def test_subgraph_includes_test_files(self, mock_middleware):
         """Test files should also appear in subgraph."""
@@ -319,6 +322,24 @@ class TestArchaiOrchestrator:
         # tests/api/test_integration.py maps to src/api/integration.py which
         # doesn't exist in any cluster → excluded by cluster-aware refinement
         assert "tests/api/test_integration.py" not in test_file_paths
+
+    async def test_no_duplicate_test_files_in_relevant_files(self, mock_middleware):
+        """Test files already in the focus subgraph should not be duplicated in relevant_files."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        packet = await orch.get_context("engine", "/fake/repo")
+
+        relevant_paths = [rf.path for rf in packet.relevant_files]
+        assert len(relevant_paths) == len(
+            set(relevant_paths)
+        ), "No duplicate paths in relevant_files"
+
+        # tests/core/test_engine.py is in the core subgraph → appears in
+        # relevant_files ONCE (as focus file), not twice (not duplicated
+        # as "related test file")
+        assert "tests/core/test_engine.py" in packet.subgraph
+        assert relevant_paths.count("tests/core/test_engine.py") == 1
 
     async def test_unknown_focus_has_no_test_files(self, mock_middleware):
         """Unknown focus should have empty subgraph and no test files."""
