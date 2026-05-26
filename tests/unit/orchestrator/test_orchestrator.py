@@ -5,7 +5,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from archai.http.models import ContextPacket, FileMetadata, SubsystemConstraints
+from archai.http.models import (
+    ChangeItem,
+    ContextPacket,
+    FileMetadata,
+    SubsystemConstraints,
+    ValidateChangeResponse,
+)
+from archai.inference.labeler import LabeledCluster
 from archai.middleware.pipeline import PipelineResult
 
 
@@ -343,3 +350,141 @@ class TestArchaiOrchestrator:
         # Fourth call without force uses updated cache
         await orch.get_context("cache", "/fake/repo")
         assert mock_middleware.process.await_count == 2  # Cache hit again
+
+    # --- validate_changes tests ---
+
+    async def test_validate_changes_valid_when_no_violations(self, mock_middleware):
+        """Validation returns valid=True when no constraints are violated."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        changes = [
+            ChangeItem(
+                file_path="src/api/routes.py",
+                patch="def get_user(): pass",
+            ),
+        ]
+        response = await orch.validate_changes("/fake/repo", changes)
+
+        assert isinstance(response, ValidateChangeResponse)
+        assert response.valid is True
+        assert response.violations == []
+
+    async def test_validate_changes_catches_async_violation(self, base_clusters):
+        """Validation catches async violations when patch contains blocking I/O."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        labeled = [
+            LabeledCluster(
+                cluster_id="api",
+                files=["src/api/routes.py", "src/api/http_handlers.py"],
+                name="API Layer",
+                description="HTTP API endpoints",
+                reasoning="Contains HTTP handlers",
+                async_only=True,
+            ),
+        ]
+        m = AsyncMock()
+        result = PipelineResult(
+            repo_path="/fake/repo",
+            graph=AsyncMock(),
+            clusters=base_clusters,
+            file_count=5,
+            edge_count=2,
+            cluster_count=2,
+            labeled_clusters=labeled,
+        )
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        changes = [
+            ChangeItem(
+                file_path="src/api/routes.py",
+                patch="def handle(): time.sleep(1)",
+            ),
+        ]
+        response = await orch.validate_changes("/fake/repo", changes)
+
+        assert response.valid is False
+        assert len(response.violations) == 1
+        v = response.violations[0]
+        assert v.file == "src/api/routes.py"
+        assert v.rule == "no_blocking_io"
+        assert "time.sleep" in v.message
+
+    async def test_validate_changes_catches_forbidden_dependency(self, base_clusters):
+        """Validation catches forbidden dependency violations."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        labeled = [
+            LabeledCluster(
+                cluster_id="core",
+                files=["src/core/engine.py", "src/core/models.py"],
+                name="Core Engine",
+                description="Core business logic",
+                reasoning="Contains engine",
+                forbidden_dependencies=["os", "subprocess"],
+            ),
+        ]
+        m = AsyncMock()
+        result = PipelineResult(
+            repo_path="/fake/repo",
+            graph=AsyncMock(),
+            clusters=base_clusters,
+            file_count=5,
+            edge_count=2,
+            cluster_count=2,
+            labeled_clusters=labeled,
+        )
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        changes = [
+            ChangeItem(
+                file_path="src/core/engine.py",
+                patch="import os\n\ndef run():\n    pass",
+            ),
+        ]
+        response = await orch.validate_changes("/fake/repo", changes)
+
+        assert response.valid is False
+        assert len(response.violations) == 1
+        v = response.violations[0]
+        assert v.file == "src/core/engine.py"
+        assert v.rule == "forbidden_dependency"
+        assert "os" in v.message
+
+    async def test_validate_changes_labeled_clusters_none(self, mock_middleware):
+        """Validation returns valid=True when labeled_clusters is None."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        changes = [
+            ChangeItem(
+                file_path="src/api/routes.py",
+                patch="def get_user(): pass",
+            ),
+        ]
+        response = await orch.validate_changes("/fake/repo", changes)
+
+        assert response.valid is True
+        assert response.violations == []
+
+    async def test_validate_changes_unknown_file(self, mock_middleware):
+        """Validation flags unknown files not in any cluster."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        changes = [
+            ChangeItem(
+                file_path="src/unknown/module.py",
+                patch="x = 1",
+            ),
+        ]
+        response = await orch.validate_changes("/fake/repo", changes)
+
+        assert response.valid is False
+        assert len(response.violations) == 1
+        v = response.violations[0]
+        assert v.file == "src/unknown/module.py"
+        assert v.rule == "unknown_file"
