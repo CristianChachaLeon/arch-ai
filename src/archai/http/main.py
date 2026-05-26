@@ -6,6 +6,7 @@ Main HTTP service with middleware integration.
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
@@ -15,6 +16,8 @@ from archai.http.models import ContextPacket
 from archai.inference.llm import LiteLLMProvider
 from archai.middleware import ArchaiMiddleware
 from archai.orchestrator import ArchaiOrchestrator
+
+load_dotenv()
 
 setup_logging()
 
