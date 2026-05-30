@@ -12,7 +12,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, field_validator
 
 from archai.config.logging import setup_logging
-from archai.http.models import ContextPacket
+from archai.http.models import (
+    ContextPacket,
+    ValidateChangeRequest,
+    ValidateChangeResponse,
+)
 from archai.inference.llm import LiteLLMProvider
 from archai.middleware import ArchaiMiddleware
 from archai.orchestrator import ArchaiOrchestrator
@@ -147,3 +151,18 @@ async def get_context(request: ContextRequest) -> ContextPacket:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Context resolution error: {str(e)}") from e
+
+
+@app.post("/validate-change", response_model=ValidateChangeResponse)
+async def validate_change(request: ValidateChangeRequest) -> ValidateChangeResponse:
+    """Validate proposed code changes against architectural constraints."""
+    try:
+        repo_path = ProcessRequest.validate_repo_path(request.repo_path)
+        result = await orchestrator.validate_changes(repo_path, request.changes)
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Validation error: {str(e)}") from e

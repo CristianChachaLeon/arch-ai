@@ -7,12 +7,23 @@ pipeline with focus resolution to produce architecture-aware context packets.
 import asyncio
 import re
 
-from archai.http.models import ContextPacket, FileMetadata, SubsystemConstraints
+from archai.http.models import (
+    ChangeItem,
+    ContextPacket,
+    FileMetadata,
+    SubsystemConstraints,
+    ValidateChangeResponse,
+    Violation,
+)
+from archai.inference.labeler import LabeledCluster
 from archai.middleware.pipeline import PipelineResult
 from archai.orchestrator.focus_resolver import resolve_focus
 
 # Regex patterns for test file detection
 _TEST_FILE_PATTERNS = re.compile(r"(test_.*\.py|.*_test\.py|conftest\.py)$")
+
+# Blocking I/O patterns to detect in patches
+_BLOCKING_IO_PATTERNS = ["time.sleep", "requests.", "open(", "subprocess.", "os.system"]
 
 
 def _strip_test_prefix(filename: str) -> str:
@@ -142,17 +153,10 @@ class ArchaiOrchestrator:
         self._cache: dict[str, PipelineResult] = {}
         self._inflight: dict[str, asyncio.Task] = {}
 
-    async def get_context(self, query: str, repo_path: str, force: bool = False) -> ContextPacket:
-        """Process a repo and query, return an architecture-governed ContextPacket.
+    async def _get_pipeline_result(self, repo_path: str, force: bool = False) -> PipelineResult:
+        """Get PipelineResult from cache or by processing the repo.
 
-        The PipelineResult is cached by repo_path so subsequent queries against
-        the same repo skip the bootstrap + inference pipeline. Concurrent
-        requests for the same repo are de-duplicated via an in-flight task tracker.
-
-        Args:
-            query: User query to resolve focus for
-            repo_path: Path to the repository
-            force: If True, bypass cache and re-process the repo
+        Uses the same cache and inflight de-dup as get_context.
         """
         if force:
             if repo_path in self._inflight:
@@ -172,6 +176,105 @@ class ArchaiOrchestrator:
             finally:
                 del self._inflight[repo_path]
             self._cache[repo_path] = pipeline_result
+        return pipeline_result
+
+    async def validate_changes(
+        self, repo_path: str, changes: list[ChangeItem]
+    ) -> ValidateChangeResponse:
+        """Validate proposed code changes against architectural constraints.
+
+        For each changed file:
+        - Checks if the file belongs to a known cluster
+        - Checks for blocking I/O violations in async-required subsystems
+        - Checks for forbidden dependency violations
+        - Gracefully degrades when labeled_clusters is None
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path)
+
+        label_lookup: dict[str, LabeledCluster] = {}
+        if pipeline_result.labeled_clusters is not None:
+            for lc in pipeline_result.labeled_clusters:
+                label_lookup[lc.cluster_id] = lc
+
+        violations: list[Violation] = []
+
+        for change in changes:
+            file_path = change.file_path
+            cluster_id = pipeline_result.get_cluster_for_file(file_path)
+
+            if cluster_id is None:
+                violations.append(
+                    Violation(
+                        file=file_path,
+                        rule="unknown_file",
+                        message=f"File '{file_path}' does not belong to any known cluster",
+                    )
+                )
+                continue
+
+            if pipeline_result.labeled_clusters is None:
+                continue
+
+            cluster = label_lookup.get(cluster_id)
+            if cluster is None:
+                continue
+
+            patch = change.patch
+
+            # Check blocking I/O patterns (async_only or no_blocking_io constraint)
+            if cluster.async_only or cluster.no_blocking_io:
+                for kw in _BLOCKING_IO_PATTERNS:
+                    if kw in patch:
+                        violations.append(
+                            Violation(
+                                file=file_path,
+                                rule="no_blocking_io",
+                                message=(
+                                    f"Patch contains blocking I/O call '{kw}' "
+                                    f"which is not allowed in this subsystem"
+                                ),
+                            )
+                        )
+                        break
+
+            # Check forbidden dependencies
+            if cluster.forbidden_dependencies:
+                for dep in cluster.forbidden_dependencies:
+                    normalized = dep.rstrip("/").replace("/", ".")
+                    if re.search(
+                        rf"(?m)^\s*import\s+{re.escape(normalized)}(?:\s+as\s+\w+)?(?:\s*,|\s*$|\.)",
+                        patch,
+                    ) or re.search(
+                        rf"(?m)^\s*from\s+{re.escape(normalized)}(?:\.|\s+)import\s+",
+                        patch,
+                    ):
+                        violations.append(
+                            Violation(
+                                file=file_path,
+                                rule="forbidden_dependency",
+                                message=f"Patch imports forbidden dependency '{dep}'",
+                            )
+                        )
+                        break
+
+        return ValidateChangeResponse(
+            valid=len(violations) == 0,
+            violations=violations,
+        )
+
+    async def get_context(self, query: str, repo_path: str, force: bool = False) -> ContextPacket:
+        """Process a repo and query, return an architecture-governed ContextPacket.
+
+        The PipelineResult is cached by repo_path so subsequent queries against
+        the same repo skip the bootstrap + inference pipeline. Concurrent
+        requests for the same repo are de-duplicated via an in-flight task tracker.
+
+        Args:
+            query: User query to resolve focus for
+            repo_path: Path to the repository
+            force: If True, bypass cache and re-process the repo
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path, force)
 
         cluster_descriptions = None
         if pipeline_result.labeled_clusters is not None:
