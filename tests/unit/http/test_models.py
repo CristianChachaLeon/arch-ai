@@ -4,9 +4,6 @@ Tests: Pydantic request/response models.
 These tests verify the structure of API models for the ArchAI HTTP service.
 """
 
-import importlib
-import os
-
 import pytest
 from pydantic import ValidationError
 
@@ -263,54 +260,31 @@ class TestBlastRadiusRequest:
 class TestBlastRadiusRequestRepoPathGuard:
     """Tests for BlastRadiusRequest.repo_path validation guard."""
 
-    @staticmethod
-    def _reload_blast_request(**env):
-        """Force reimport of archai.http.main with given env vars, return BlastRadiusRequest."""
-        import sys
-
-        saved = {}
-        for k, v in env.items():
-            saved[k] = os.environ.get(k)
-            os.environ[k] = v
-
-        # Unset unsafe so guard is active
-        saved_unsafe = os.environ.pop("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", None)
-
-        try:
-            for key in list(sys.modules):
-                if key.startswith("archai.http.main"):
-                    del sys.modules[key]
-            from archai.http.main import BlastRadiusRequest as B  # noqa: F811
-
-            return B
-        finally:
-            # Restore env
-            for k, v in saved.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
-            if saved_unsafe is not None:
-                os.environ["ARCHAI_ALLOW_UNSAFE_REPO_ROOT"] = saved_unsafe
-
-    def test_inside_allowed_root_passes(self):
+    def test_inside_allowed_root_passes(self, monkeypatch):
         """Test that repo_path inside ALLOWED_REPO_ROOT is accepted."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            B = self._reload_blast_request(ARCHAI_ALLOWED_REPO_ROOT=tmpdir)
+            monkeypatch.setenv("ARCHAI_ALLOWED_REPO_ROOT", tmpdir)
+            from archai.http.main import BlastRadiusRequest as B
+
             req = B(repo_path=tmpdir, file_path="src/core/engine.py", depth=2)
             assert req.repo_path == tmpdir
 
-    def test_outside_allowed_root_fails(self):
+    def test_outside_allowed_root_fails(self, monkeypatch):
         """Test that repo_path outside ALLOWED_REPO_ROOT raises ValidationError."""
-        B = self._reload_blast_request(ARCHAI_ALLOWED_REPO_ROOT="/tmp/archai-allowed")
+        monkeypatch.setenv("ARCHAI_ALLOWED_REPO_ROOT", "/tmp/archai-allowed")
+        from archai.http.main import BlastRadiusRequest as B
+
         with pytest.raises(ValidationError, match="repo_path must be within allowed root"):
             B(repo_path="/etc/passwd", file_path="src/core/engine.py", depth=2)
 
-    def test_no_allowed_root_and_no_unsafe_fails(self):
+    def test_no_allowed_root_and_no_unsafe_fails(self, monkeypatch):
         """Test that without ALLOWED_REPO_ROOT and without unsafe override, it fails closed."""
-        B = self._reload_blast_request()
+        monkeypatch.delenv("ARCHAI_ALLOWED_REPO_ROOT", raising=False)
+        monkeypatch.delenv("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", raising=False)
+        from archai.http.main import BlastRadiusRequest as B
+
         with pytest.raises(ValidationError, match="ARCHAI_ALLOWED_REPO_ROOT is not set"):
             B(repo_path="/fake/repo", file_path="src/core/engine.py", depth=2)
 

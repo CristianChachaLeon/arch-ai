@@ -36,65 +36,45 @@ llm_provider = LiteLLMProvider(model=LLM_MODEL) if LLM_MODEL else None
 middleware = ArchaiMiddleware(llm_provider=llm_provider)
 orchestrator = ArchaiOrchestrator(middleware)
 
-# Allowed repo root for path validation (fail-closed: must be set or override enabled)
-ALLOWED_REPO_ROOT = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT") or None
-ALLOW_UNSAFE = os.environ.get("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", "").lower() == "true"
+
+def _validate_repo_path(v: str) -> str:
+    """Validate repo_path against allowed root (fail-closed).
+
+    Shared validator used by ContextRequest, ProcessRequest, and BlastRadiusRequest.
+    Reads env vars at call time so tests can use monkeypatch instead of reimporting.
+    """
+    resolved_path = Path(v).resolve()
+    allowed_root = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT")
+    allow_unsafe = os.environ.get("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", "").lower() == "true"
+
+    if allowed_root is not None:
+        allowed_root_path = Path(allowed_root).resolve()
+        if not resolved_path.is_relative_to(allowed_root_path):
+            raise ValueError(
+                f"repo_path must be within allowed root: {allowed_root_path}. "
+                f"Got: {resolved_path}"
+            )
+    elif not allow_unsafe:
+        raise ValueError(
+            "ARCHAI_ALLOWED_REPO_ROOT is not set. "
+            "Set it to a safe repo root, or set "
+            "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
+        )
+
+    return str(resolved_path)
 
 
 class ContextRequest(BaseModel):
     query: str
     repo_path: str
 
-    @field_validator("repo_path")
-    @classmethod
-    def validate_repo_path(cls, v: str) -> str:
-        """Validate and normalize repo_path against allowed root (fail-closed)."""
-        resolved_path = Path(v).resolve()
-
-        if ALLOWED_REPO_ROOT is not None:
-            allowed_root = Path(ALLOWED_REPO_ROOT).resolve()
-            if not resolved_path.is_relative_to(allowed_root):
-                raise ValueError(
-                    f"repo_path must be within allowed root: {allowed_root}. "
-                    f"Got: {resolved_path}"
-                )
-        elif not ALLOW_UNSAFE:
-            raise ValueError(
-                "ARCHAI_ALLOWED_REPO_ROOT is not set. "
-                "Set it to a safe repo root, or set "
-                "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
-            )
-
-        return str(resolved_path)
+    validate_repo_path = field_validator("repo_path")(_validate_repo_path)
 
 
 class ProcessRequest(BaseModel):
     repo_path: str
 
-    @field_validator("repo_path")
-    @classmethod
-    def validate_repo_path(cls, v: str) -> str:
-        """Validate and normalize repo_path against allowed root (fail-closed)."""
-        resolved_path = Path(v).resolve()
-
-        if ALLOWED_REPO_ROOT is not None:
-            # Restrictive mode: validate against the configured root
-            allowed_root = Path(ALLOWED_REPO_ROOT).resolve()
-            if not resolved_path.is_relative_to(allowed_root):
-                raise ValueError(
-                    f"repo_path must be within allowed root: {allowed_root}. "
-                    f"Got: {resolved_path}"
-                )
-        elif not ALLOW_UNSAFE:
-            # Fail-closed: no root configured and no dev override
-            raise ValueError(
-                "ARCHAI_ALLOWED_REPO_ROOT is not set. "
-                "Set it to a safe repo root, or set "
-                "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
-            )
-        # else: dev override — allow any path
-
-        return str(resolved_path)
+    validate_repo_path = field_validator("repo_path")(_validate_repo_path)
 
 
 class ProcessResponse(BaseModel):
@@ -113,27 +93,7 @@ class BlastRadiusRequest(BaseModel):
     file_path: str
     depth: int = 2
 
-    @field_validator("repo_path")
-    @classmethod
-    def validate_repo_path(cls, v: str) -> str:
-        """Validate and normalize repo_path against allowed root (fail-closed)."""
-        resolved_path = Path(v).resolve()
-
-        if ALLOWED_REPO_ROOT is not None:
-            allowed_root = Path(ALLOWED_REPO_ROOT).resolve()
-            if not resolved_path.is_relative_to(allowed_root):
-                raise ValueError(
-                    f"repo_path must be within allowed root: {allowed_root}. "
-                    f"Got: {resolved_path}"
-                )
-        elif not ALLOW_UNSAFE:
-            raise ValueError(
-                "ARCHAI_ALLOWED_REPO_ROOT is not set. "
-                "Set it to a safe repo root, or set "
-                "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
-            )
-
-        return str(resolved_path)
+    validate_repo_path = field_validator("repo_path")(_validate_repo_path)
 
     @field_validator("file_path")
     @classmethod
