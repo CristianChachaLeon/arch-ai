@@ -20,6 +20,20 @@ class LLMError(Exception):
     """
 
 
+def _extract_json(content: str) -> str:
+    """Extract a JSON object from a string that may contain surrounding text or markdown.
+
+    Finds the first ``{`` and the last ``}`` and returns the substring in between.
+    If no braces are found, returns the original content unchanged so the downstream
+    caller can produce a meaningful error.
+    """
+    start = content.find("{")
+    end = content.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return content
+    return content[start : end + 1]
+
+
 class LLMProvider(ABC):
     """Abstract interface for LLM providers.
 
@@ -96,6 +110,8 @@ class LLMProvider(ABC):
             system_prompt=combined_system,
             temperature=temperature,
         )
+
+        content = _extract_json(content)
 
         try:
             return response_model.model_validate_json(content)
