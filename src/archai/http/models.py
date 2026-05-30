@@ -6,7 +6,9 @@ This module defines all request/response models for the API endpoints.
 
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+from archai.http.config import validate_repo_path
 
 
 class SubsystemConstraints(BaseModel):
@@ -59,6 +61,53 @@ class ContextRequest(BaseModel):
     query: str
     repo_path: str
 
+    validate_repo_path = field_validator("repo_path")(validate_repo_path)
+
+
+class ProcessRequest(BaseModel):
+    """Request for processing a repository."""
+
+    repo_path: str
+
+    validate_repo_path = field_validator("repo_path")(validate_repo_path)
+
+
+class ProcessResponse(BaseModel):
+    """Response for repository processing."""
+
+    repo_path: str
+    file_count: int
+    edge_count: int
+    cluster_count: int
+    clusters: dict
+    cluster_names: dict | None = None
+    cluster_descriptions: dict | None = None
+    cluster_reasonings: dict | None = None
+
+
+class BlastRadiusRequest(BaseModel):
+    """Request for blast radius analysis of a file change."""
+
+    repo_path: str
+    file_path: str
+    depth: int = 2
+
+    validate_repo_path = field_validator("repo_path")(validate_repo_path)
+
+    @field_validator("file_path")
+    @classmethod
+    def validate_file_path(cls, v: str) -> str:
+        if not v.endswith(".py"):
+            raise ValueError("file_path must be a Python file (.py)")
+        return v
+
+    @field_validator("depth")
+    @classmethod
+    def validate_depth(cls, v: int) -> int:
+        if v < 1 or v > 5:
+            raise ValueError("depth must be between 1 and 5")
+        return v
+
 
 class RepositoryResponse(BaseModel):
     """Response for repository information."""
@@ -74,6 +123,26 @@ class ChangeItem(BaseModel):
     file_path: str
     patch: str
     change_type: Optional[str] = None
+
+
+class BlastRadiusResponse(BaseModel):
+    """Response for blast radius analysis of a file change."""
+
+    focus_file: str
+    direct_dependents: list[str] = Field(
+        default_factory=list,
+        description="Files that directly import the focus file (would break if API changes)",
+    )
+    direct_dependencies: list[str] = Field(
+        default_factory=list, description="Files that the focus file directly imports"
+    )
+    transitive_dependents: list[str] = Field(
+        default_factory=list,
+        description="Files that transitively depend on the focus file (beyond direct)",
+    )
+    subsystems_affected: dict[str, int] = Field(
+        default_factory=dict, description="Subsystem names mapped to count of affected files"
+    )
 
 
 class ValidateChangeRequest(BaseModel):

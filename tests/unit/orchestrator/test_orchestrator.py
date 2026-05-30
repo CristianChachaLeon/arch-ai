@@ -3,9 +3,11 @@
 import asyncio
 from unittest.mock import AsyncMock
 
+import networkx as nx
 import pytest
 
 from archai.http.models import (
+    BlastRadiusResponse,
     ChangeItem,
     ContextPacket,
     FileMetadata,
@@ -71,6 +73,77 @@ def cluster_aware_clusters():
 
 
 @pytest.fixture
+def blast_graph():
+    """Build a directed graph with known edges for blast radius testing.
+
+    Edge semantics: A → B means "A imports B"
+
+    Graph structure:
+        src/app/main.py → src/api/routes.py
+        tests/api/test_routes.py → src/api/routes.py
+        src/api/routes.py → src/core/engine.py
+        src/api/routes.py → src/api/middleware.py
+        src/api/http_handlers.py → src/core/engine.py
+        src/api/http_handlers.py → src/api/middleware.py
+        src/core/engine.py → src/core/models.py
+        src/core/engine.py → src/core/utils.py
+        src/core/utils.py → src/core/models.py
+        src/core/models.py → src/core/base.py
+
+        Isolated file (no edges): src/standalone/config.py
+    """
+    from archai.bootstrap.graph_builder import FileGraph, FileNode
+
+    graph = nx.DiGraph()
+    edges = [
+        ("src/app/main.py", "src/api/routes.py"),
+        ("tests/api/test_routes.py", "src/api/routes.py"),
+        ("src/api/routes.py", "src/core/engine.py"),
+        ("src/api/routes.py", "src/api/middleware.py"),
+        ("src/api/http_handlers.py", "src/core/engine.py"),
+        ("src/api/http_handlers.py", "src/api/middleware.py"),
+        ("src/core/engine.py", "src/core/models.py"),
+        ("src/core/engine.py", "src/core/utils.py"),
+        ("src/core/utils.py", "src/core/models.py"),
+        ("src/core/models.py", "src/core/base.py"),
+    ]
+    for u, v in edges:
+        graph.add_edge(u, v)
+
+    # Add all node files that appear only as successors
+    all_nodes = set()
+    for u, v in edges:
+        all_nodes.add(u)
+        all_nodes.add(v)
+    # Add an isolated file with no edges
+    all_nodes.add("src/standalone/config.py")
+    for node in all_nodes:
+        if node not in graph:
+            graph.add_node(node)
+
+    fg = FileGraph(graph)
+    for node in all_nodes:
+        fg._nodes[node] = FileNode(path=node)
+    return fg
+
+
+@pytest.fixture
+def blast_clusters():
+    return {
+        "api": ["src/api/routes.py", "src/api/http_handlers.py", "src/api/middleware.py"],
+        "core": [
+            "src/core/engine.py",
+            "src/core/models.py",
+            "src/core/utils.py",
+            "src/core/base.py",
+        ],
+        "app": ["src/app/main.py"],
+        "tests": ["tests/api/test_routes.py"],
+        "standalone": ["src/standalone/config.py"],
+    }
+
+
+@pytest.fixture
 def cluster_aware_middleware(cluster_aware_clusters):
     m = AsyncMock()
     result = PipelineResult(
@@ -80,6 +153,22 @@ def cluster_aware_middleware(cluster_aware_clusters):
         file_count=9,
         edge_count=3,
         cluster_count=3,
+        labeled_clusters=None,
+    )
+    m.process.return_value = result
+    return m
+
+
+@pytest.fixture
+def blast_middleware(blast_graph, blast_clusters):
+    m = AsyncMock()
+    result = PipelineResult(
+        repo_path="/fake/repo",
+        graph=blast_graph,
+        clusters=blast_clusters,
+        file_count=10,
+        edge_count=10,
+        cluster_count=5,
         labeled_clusters=None,
     )
     m.process.return_value = result
@@ -604,3 +693,99 @@ class TestArchaiOrchestrator:
         v = response.violations[0]
         assert v.file == "src/unknown/module.py"
         assert v.rule == "unknown_file"
+
+
+class TestBlastRadius:
+    """Test suite for ArchaiOrchestrator.get_blast_radius."""
+
+    async def test_get_blast_radius_returns_expected_structure(self, blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.py")
+
+        assert isinstance(result, BlastRadiusResponse)
+        assert result.focus_file == "src/core/engine.py"
+        assert isinstance(result.direct_dependents, list)
+        assert isinstance(result.direct_dependencies, list)
+        assert isinstance(result.transitive_dependents, list)
+        assert isinstance(result.subsystems_affected, dict)
+
+    async def test_get_blast_radius_direct_dependents(self, blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.py")
+
+        # Files that directly import engine.py
+        assert set(result.direct_dependents) == {
+            "src/api/routes.py",
+            "src/api/http_handlers.py",
+        }
+
+    async def test_get_blast_radius_direct_dependencies(self, blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.py")
+
+        # Files that engine.py directly imports
+        assert set(result.direct_dependencies) == {
+            "src/core/models.py",
+            "src/core/utils.py",
+        }
+
+    async def test_get_blast_radius_file_not_in_graph(self, blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(blast_middleware)
+
+        with pytest.raises(ValueError, match="not found in dependency graph"):
+            await orch.get_blast_radius("/fake/repo", "src/nonexistent.py")
+
+    async def test_get_blast_radius_transitive_depth(self, blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(blast_middleware)
+
+        # engine.py at depth=1: only direct dependents, no transitive
+        result_d1 = await orch.get_blast_radius("/fake/repo", "src/core/engine.py", depth=1)
+        assert result_d1.transitive_dependents == []
+
+        # engine.py at depth=2: files that import engine.py's importers
+        result_d2 = await orch.get_blast_radius("/fake/repo", "src/core/engine.py", depth=2)
+        assert set(result_d2.transitive_dependents) == {
+            "src/app/main.py",
+            "tests/api/test_routes.py",
+        }
+
+        # models.py at depth=2
+        result_m2 = await orch.get_blast_radius("/fake/repo", "src/core/models.py", depth=2)
+        # Files that import models.py: engine.py, utils.py  (direct)
+        # Files that import engine.py/utils.py's importers: routes.py, http_handlers.py  (transitive)
+        assert "src/core/engine.py" in result_m2.direct_dependents
+        assert "src/core/utils.py" in result_m2.direct_dependents
+        assert "src/api/routes.py" in result_m2.transitive_dependents
+        assert "src/api/http_handlers.py" in result_m2.transitive_dependents
+
+    async def test_get_blast_radius_subsystems_affected(self, blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.py", depth=2)
+
+        # Affected: routes.py (api), http_handlers.py (api), main.py (app), test_routes.py (tests)
+        assert result.subsystems_affected.get("api") == 2
+        assert result.subsystems_affected.get("app") == 1
+        assert result.subsystems_affected.get("tests") == 1
+
+    async def test_get_blast_radius_no_dependents(self, blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/standalone/config.py")
+
+        assert result.direct_dependents == []
+        assert result.direct_dependencies == []
+        assert result.transitive_dependents == []
+        assert result.subsystems_affected == {}

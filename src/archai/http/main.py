@@ -4,16 +4,19 @@ Main HTTP service with middleware integration.
 """
 
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
 
 from archai.config.logging import setup_logging
 from archai.http.models import (
+    BlastRadiusRequest,
+    BlastRadiusResponse,
     ContextPacket,
+    ContextRequest,
+    ProcessRequest,
+    ProcessResponse,
     ValidateChangeRequest,
     ValidateChangeResponse,
 )
@@ -34,77 +37,6 @@ LLM_MODEL = os.environ.get("ARCHAI_LLM_MODEL")
 llm_provider = LiteLLMProvider(model=LLM_MODEL) if LLM_MODEL else None
 middleware = ArchaiMiddleware(llm_provider=llm_provider)
 orchestrator = ArchaiOrchestrator(middleware)
-
-# Allowed repo root for path validation (fail-closed: must be set or override enabled)
-ALLOWED_REPO_ROOT = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT") or None
-ALLOW_UNSAFE = os.environ.get("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", "").lower() == "true"
-
-
-class ContextRequest(BaseModel):
-    query: str
-    repo_path: str
-
-    @field_validator("repo_path")
-    @classmethod
-    def validate_repo_path(cls, v: str) -> str:
-        """Validate and normalize repo_path against allowed root (fail-closed)."""
-        resolved_path = Path(v).resolve()
-
-        if ALLOWED_REPO_ROOT is not None:
-            allowed_root = Path(ALLOWED_REPO_ROOT).resolve()
-            if not resolved_path.is_relative_to(allowed_root):
-                raise ValueError(
-                    f"repo_path must be within allowed root: {allowed_root}. "
-                    f"Got: {resolved_path}"
-                )
-        elif not ALLOW_UNSAFE:
-            raise ValueError(
-                "ARCHAI_ALLOWED_REPO_ROOT is not set. "
-                "Set it to a safe repo root, or set "
-                "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
-            )
-
-        return str(resolved_path)
-
-
-class ProcessRequest(BaseModel):
-    repo_path: str
-
-    @field_validator("repo_path")
-    @classmethod
-    def validate_repo_path(cls, v: str) -> str:
-        """Validate and normalize repo_path against allowed root (fail-closed)."""
-        resolved_path = Path(v).resolve()
-
-        if ALLOWED_REPO_ROOT is not None:
-            # Restrictive mode: validate against the configured root
-            allowed_root = Path(ALLOWED_REPO_ROOT).resolve()
-            if not resolved_path.is_relative_to(allowed_root):
-                raise ValueError(
-                    f"repo_path must be within allowed root: {allowed_root}. "
-                    f"Got: {resolved_path}"
-                )
-        elif not ALLOW_UNSAFE:
-            # Fail-closed: no root configured and no dev override
-            raise ValueError(
-                "ARCHAI_ALLOWED_REPO_ROOT is not set. "
-                "Set it to a safe repo root, or set "
-                "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
-            )
-        # else: dev override — allow any path
-
-        return str(resolved_path)
-
-
-class ProcessResponse(BaseModel):
-    repo_path: str
-    file_count: int
-    edge_count: int
-    cluster_count: int
-    clusters: dict
-    cluster_names: dict | None = None
-    cluster_descriptions: dict | None = None
-    cluster_reasonings: dict | None = None
 
 
 @app.get("/health")
@@ -166,3 +98,19 @@ async def validate_change(request: ValidateChangeRequest) -> ValidateChangeRespo
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Validation error: {str(e)}") from e
+
+
+@app.post("/blast-radius", response_model=BlastRadiusResponse)
+async def get_blast_radius(request: BlastRadiusRequest) -> BlastRadiusResponse:
+    """Analyze the blast radius of changing a file."""
+    try:
+        result = await orchestrator.get_blast_radius(
+            request.repo_path, request.file_path, request.depth
+        )
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Blast radius error: {str(e)}") from e
