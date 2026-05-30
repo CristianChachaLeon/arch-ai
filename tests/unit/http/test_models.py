@@ -136,8 +136,9 @@ class TestContextPacket:
 class TestContextRequest:
     """Tests for ContextRequest."""
 
-    def test_valid_request(self):
+    def test_valid_request(self, monkeypatch):
         """Test creating a valid context request."""
+        monkeypatch.setattr("archai.http.config.detect_repo_root", lambda: "/path/to")
         request = ContextRequest(
             query="How does the health endpoint work?",
             repo_path="/path/to/repo",
@@ -201,8 +202,9 @@ class TestValidateChangeRequest:
 class TestBlastRadiusRequest:
     """Tests for BlastRadiusRequest validation."""
 
-    def test_valid_request(self):
+    def test_valid_request(self, monkeypatch):
         """Test creating a valid blast radius request."""
+        monkeypatch.setattr("archai.http.config.detect_repo_root", lambda: "/fake")
         from archai.http.main import BlastRadiusRequest
 
         request = BlastRadiusRequest(
@@ -214,8 +216,9 @@ class TestBlastRadiusRequest:
         assert request.file_path == "src/core/engine.py"
         assert request.depth == 2
 
-    def test_file_path_must_end_with_py(self):
+    def test_file_path_must_end_with_py(self, monkeypatch):
         """Test that file_path must end with .py."""
+        monkeypatch.setattr("archai.http.config.detect_repo_root", lambda: "/fake")
         from archai.http.main import BlastRadiusRequest
 
         with pytest.raises(ValidationError, match="must be a Python file"):
@@ -224,8 +227,9 @@ class TestBlastRadiusRequest:
                 file_path="src/core/engine.ts",
             )
 
-    def test_depth_minimum(self):
+    def test_depth_minimum(self, monkeypatch):
         """Test that depth must be at least 1."""
+        monkeypatch.setattr("archai.http.config.detect_repo_root", lambda: "/fake")
         from archai.http.main import BlastRadiusRequest
 
         with pytest.raises(ValidationError, match="depth must be between 1 and 5"):
@@ -235,8 +239,9 @@ class TestBlastRadiusRequest:
                 depth=0,
             )
 
-    def test_depth_maximum(self):
+    def test_depth_maximum(self, monkeypatch):
         """Test that depth must be at most 5."""
+        monkeypatch.setattr("archai.http.config.detect_repo_root", lambda: "/fake")
         from archai.http.main import BlastRadiusRequest
 
         with pytest.raises(ValidationError, match="depth must be between 1 and 5"):
@@ -246,8 +251,9 @@ class TestBlastRadiusRequest:
                 depth=6,
             )
 
-    def test_depth_defaults_to_two(self):
+    def test_depth_defaults_to_two(self, monkeypatch):
         """Test that depth defaults to 2."""
+        monkeypatch.setattr("archai.http.config.detect_repo_root", lambda: "/fake")
         from archai.http.main import BlastRadiusRequest
 
         request = BlastRadiusRequest(
@@ -261,34 +267,23 @@ class TestBlastRadiusRequestRepoPathGuard:
     """Tests for BlastRadiusRequest.repo_path validation guard."""
 
     def test_inside_allowed_root_passes(self, monkeypatch):
-        """Test that repo_path inside ALLOWED_REPO_ROOT is accepted."""
-        from pathlib import Path
-
+        """Test that repo_path inside the detected repo root is accepted."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            monkeypatch.setenv("ARCHAI_ALLOWED_REPO_ROOT", tmpdir)
+            monkeypatch.setattr("archai.http.config.detect_repo_root", lambda: tmpdir)
             from archai.http.main import BlastRadiusRequest as B
 
             req = B(repo_path=tmpdir, file_path="src/core/engine.py", depth=2)
-            assert req.repo_path == str(Path(tmpdir).resolve())
+            assert req.repo_path == tmpdir
 
-    def test_outside_allowed_root_fails(self, monkeypatch, tmp_path):
-        """Test that repo_path outside ALLOWED_REPO_ROOT raises ValidationError."""
-        monkeypatch.setenv("ARCHAI_ALLOWED_REPO_ROOT", str(tmp_path))
+    def test_outside_allowed_root_fails(self, monkeypatch):
+        """Test that repo_path outside the detected repo root raises ValidationError."""
+        monkeypatch.setattr("archai.http.config.detect_repo_root", lambda: "/tmp/allowed")
         from archai.http.main import BlastRadiusRequest as B
 
-        with pytest.raises(ValidationError, match="repo_path must be within allowed root"):
+        with pytest.raises(ValidationError, match="repo_path must be within the repo root"):
             B(repo_path="/etc/passwd", file_path="src/core/engine.py", depth=2)
-
-    def test_no_allowed_root_and_no_unsafe_fails(self, monkeypatch):
-        """Test that without ALLOWED_REPO_ROOT and without unsafe override, it fails closed."""
-        monkeypatch.delenv("ARCHAI_ALLOWED_REPO_ROOT", raising=False)
-        monkeypatch.delenv("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", raising=False)
-        from archai.http.main import BlastRadiusRequest as B
-
-        with pytest.raises(ValidationError, match="ARCHAI_ALLOWED_REPO_ROOT is not set"):
-            B(repo_path="/fake/repo", file_path="src/core/engine.py", depth=2)
 
 
 class TestValidateChangeResponse:

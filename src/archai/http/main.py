@@ -4,17 +4,19 @@ Main HTTP service with middleware integration.
 """
 
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
 
 from archai.config.logging import setup_logging
 from archai.http.models import (
+    BlastRadiusRequest,
     BlastRadiusResponse,
     ContextPacket,
+    ContextRequest,
+    ProcessRequest,
+    ProcessResponse,
     ValidateChangeRequest,
     ValidateChangeResponse,
 )
@@ -35,79 +37,6 @@ LLM_MODEL = os.environ.get("ARCHAI_LLM_MODEL")
 llm_provider = LiteLLMProvider(model=LLM_MODEL) if LLM_MODEL else None
 middleware = ArchaiMiddleware(llm_provider=llm_provider)
 orchestrator = ArchaiOrchestrator(middleware)
-
-
-def _validate_repo_path(v: str) -> str:
-    """Validate repo_path against allowed root (fail-closed).
-
-    Shared validator used by ContextRequest, ProcessRequest, and BlastRadiusRequest.
-    Reads env vars at call time so tests can use monkeypatch instead of reimporting.
-    """
-    resolved_path = Path(v).resolve()
-    allowed_root = os.environ.get("ARCHAI_ALLOWED_REPO_ROOT")
-    allow_unsafe = os.environ.get("ARCHAI_ALLOW_UNSAFE_REPO_ROOT", "").lower() == "true"
-
-    if allowed_root is not None:
-        allowed_root_path = Path(allowed_root).resolve()
-        if not resolved_path.is_relative_to(allowed_root_path):
-            raise ValueError(
-                f"repo_path must be within allowed root: {allowed_root_path}. "
-                f"Got: {resolved_path}"
-            )
-    elif not allow_unsafe:
-        raise ValueError(
-            "ARCHAI_ALLOWED_REPO_ROOT is not set. "
-            "Set it to a safe repo root, or set "
-            "ARCHAI_ALLOW_UNSAFE_REPO_ROOT=true to allow any path (dev only)."
-        )
-
-    return str(resolved_path)
-
-
-class ContextRequest(BaseModel):
-    query: str
-    repo_path: str
-
-    validate_repo_path = field_validator("repo_path")(_validate_repo_path)
-
-
-class ProcessRequest(BaseModel):
-    repo_path: str
-
-    validate_repo_path = field_validator("repo_path")(_validate_repo_path)
-
-
-class ProcessResponse(BaseModel):
-    repo_path: str
-    file_count: int
-    edge_count: int
-    cluster_count: int
-    clusters: dict
-    cluster_names: dict | None = None
-    cluster_descriptions: dict | None = None
-    cluster_reasonings: dict | None = None
-
-
-class BlastRadiusRequest(BaseModel):
-    repo_path: str
-    file_path: str
-    depth: int = 2
-
-    validate_repo_path = field_validator("repo_path")(_validate_repo_path)
-
-    @field_validator("file_path")
-    @classmethod
-    def validate_file_path(cls, v: str) -> str:
-        if not v.endswith(".py"):
-            raise ValueError("file_path must be a Python file (.py)")
-        return v
-
-    @field_validator("depth")
-    @classmethod
-    def validate_depth(cls, v: int) -> int:
-        if v < 1 or v > 5:
-            raise ValueError("depth must be between 1 and 5")
-        return v
 
 
 @app.get("/health")
