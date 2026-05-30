@@ -262,6 +262,8 @@ class TestBlastRadiusRequestRepoPathGuard:
 
     def test_inside_allowed_root_passes(self, monkeypatch):
         """Test that repo_path inside ALLOWED_REPO_ROOT is accepted."""
+        from pathlib import Path
+
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -269,11 +271,11 @@ class TestBlastRadiusRequestRepoPathGuard:
             from archai.http.main import BlastRadiusRequest as B
 
             req = B(repo_path=tmpdir, file_path="src/core/engine.py", depth=2)
-            assert req.repo_path == tmpdir
+            assert req.repo_path == str(Path(tmpdir).resolve())
 
-    def test_outside_allowed_root_fails(self, monkeypatch):
+    def test_outside_allowed_root_fails(self, monkeypatch, tmp_path):
         """Test that repo_path outside ALLOWED_REPO_ROOT raises ValidationError."""
-        monkeypatch.setenv("ARCHAI_ALLOWED_REPO_ROOT", "/tmp/archai-allowed")
+        monkeypatch.setenv("ARCHAI_ALLOWED_REPO_ROOT", str(tmp_path))
         from archai.http.main import BlastRadiusRequest as B
 
         with pytest.raises(ValidationError, match="repo_path must be within allowed root"):
