@@ -6,7 +6,7 @@
 |------|--------|
 | **Project** | ArchAI |
 | **Version** | 0.2.0 |
-| **Status** | Draft |
+| **Status** | Accepted |
 | **Date** | 2026-05-30 |
 | **Supersedes** | Sections of 001-sdd related to HTTP Service |
 
@@ -261,18 +261,21 @@ archai = "archai.cli.app:app"  # NEW — CLI entry point
 ## 8. Migration Plan
 
 ### Phase 1: CLI (this SDD)
+
 1. Create `src/archai/cli/app.py` with typer
 2. Add `archai start` and `archai ask` commands
 3. Update `pyproject.toml` with CLI deps and entry point
 4. Remove FastAPI and http/ module
 
 ### Phase 2: MCP Server (this SDD)
+
 1. Create `src/archai/mcp_server.py`
 2. Implement 3 MCP tools using Core Logic directly
 3. Add `.opencode/mcp.json` configuration
 4. Test with OpenCode
 
 ### Phase 3: Cleanup
+
 1. Remove `src/archai/http/` directory
 2. Remove FastAPI and uvicorn from dependencies
 3. Update imports across the codebase
