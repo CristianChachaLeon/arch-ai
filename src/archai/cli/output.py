@@ -5,6 +5,7 @@ Provides human-readable (rich) and JSON output modes for all CLI commands.
 
 from __future__ import annotations
 
+import io
 import json
 from typing import Any
 
@@ -39,7 +40,8 @@ def format_context_packet(data: dict, json_mode: bool) -> str:
     from rich.panel import Panel
     from rich.table import Table
 
-    console = Console(record=True, width=120)
+    buf = io.StringIO()
+    console = Console(file=buf, record=True, width=120)
 
     # Header
     console.print(
@@ -108,7 +110,8 @@ def format_blast_radius(data: dict, json_mode: bool) -> str:
     from rich.panel import Panel
     from rich.table import Table
 
-    console = Console(record=True, width=120)
+    buf = io.StringIO()
+    console = Console(file=buf, record=True, width=120)
 
     console.print(
         Panel(
@@ -168,7 +171,8 @@ def format_validation(data: dict, json_mode: bool) -> str:
     from rich.panel import Panel
     from rich.table import Table
 
-    console = Console(record=True, width=120)
+    buf = io.StringIO()
+    console = Console(file=buf, record=True, width=120)
 
     valid = d.get("valid", False)
     status = "[bold green]VALID[/]" if valid else "[bold red]INVALID[/]"
@@ -212,7 +216,8 @@ def format_process_result(data: dict, json_mode: bool) -> str:
     from rich.panel import Panel
     from rich.table import Table
 
-    console = Console(record=True, width=120)
+    buf = io.StringIO()
+    console = Console(file=buf, record=True, width=120)
 
     console.print(
         Panel(

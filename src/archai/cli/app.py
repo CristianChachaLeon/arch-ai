@@ -54,7 +54,9 @@ def start(
 
     try:
         data = _run_async(_process())
-        typer.echo(format_process_result(data, json_output))
+        output = format_process_result(data, json_output)
+        if output:
+            typer.echo(output)
     except Exception as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(code=1)
