@@ -22,7 +22,6 @@ def _run_async(coro):
         loop = None
 
     if loop and loop.is_running():
-        # Already inside an event loop (e.g. Jupyter) — use a new thread
         import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor() as pool:
