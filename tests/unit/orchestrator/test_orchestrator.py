@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ArchaiOrchestrator - Tests for the full pipeline orchestrator."""
 
 import asyncio

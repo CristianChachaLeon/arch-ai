@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from unittest import mock
 
 import pytest
@@ -10,6 +11,11 @@ from typer.testing import CliRunner
 from archai.cli.app import app
 
 runner = CliRunner()
+
+
+def _strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from text."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 class TestCliHelp:
@@ -25,13 +31,13 @@ class TestCliHelp:
     def test_start_help(self):
         result = runner.invoke(app, ["start", "--help"])
         assert result.exit_code == 0
-        assert "--json" in result.output
+        assert "--json" in _strip_ansi(result.output)
 
     def test_ask_help(self):
         result = runner.invoke(app, ["ask", "--help"])
         assert result.exit_code == 0
         assert "QUERY" in result.output
-        assert "--json" in result.output
+        assert "--json" in _strip_ansi(result.output)
 
     def test_mcp_help(self):
         result = runner.invoke(app, ["mcp", "--help"])
