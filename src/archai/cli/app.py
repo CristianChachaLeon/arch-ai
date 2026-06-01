@@ -126,36 +126,40 @@ def init(
 ):
     """Initialize archai in a project for OpenCode MCP integration.
 
-    Creates .opencode/mcp.json with the MCP server configuration
-    so OpenCode can discover and call archai's architecture tools.
+    Creates .opencode.json with the MCP server configuration so OpenCode
+    can discover and call archai's architecture tools in this project.
     """
     project_path = Path(project_dir).resolve()
-    opencode_dir = project_path / ".opencode"
-    mcp_file = opencode_dir / "mcp.json"
+    config_file = project_path / ".opencode.json"
 
-    if mcp_file.exists() and not force:
+    # Read existing config or start fresh
+    existing = {}
+    if config_file.exists():
+        try:
+            existing = json.loads(config_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    if config_file.exists() and not force:
         typer.echo(
             typer.style(
-                "⚠ .opencode/mcp.json already exists. Use --force to overwrite.",
+                "⚠ .opencode.json already has mcpServers configured. Use --force to overwrite.",
                 fg="yellow",
             )
         )
         raise typer.Exit(code=0)
 
-    opencode_dir.mkdir(parents=True, exist_ok=True)
-
-    config = {
-        "mcpServers": {
-            "archai": {
-                "command": "archai" if no_uv else "uv",
-                "args": ["mcp"] if no_uv else ["run", "archai", "mcp"],
-            }
-        }
+    mcp_config = {
+        "type": "stdio",
+        "command": "archai" if no_uv else "uv",
+        "args": ["mcp"] if no_uv else ["run", "archai", "mcp"],
+        "env": [],
     }
+    existing.setdefault("mcpServers", {})["archai"] = mcp_config
 
-    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
+    config_file.write_text(json.dumps(existing, indent=2) + "\n")
 
-    typer.echo(typer.style("✓ Created .opencode/mcp.json", fg="green"))
+    typer.echo(typer.style("✓ Configured archai MCP server in .opencode.json", fg="green"))
 
     if model:
         typer.echo(
