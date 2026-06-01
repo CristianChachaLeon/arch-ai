@@ -7,9 +7,10 @@ to depend on an abstraction rather than a concrete API.
 
 from __future__ import annotations
 
+import ast
 import json
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, get_origin
 
 
 class LLMError(Exception):
@@ -32,6 +33,60 @@ def _extract_json(content: str) -> str:
     if start == -1 or end == -1 or end < start:
         return content
     return content[start : end + 1]
+
+
+def _sanitize_list_fields(content: str, response_model: type[Any]) -> str:
+    """Parse JSON and convert string-encoded lists to actual lists.
+
+    Some LLMs (especially smaller ones) return list fields as strings
+    instead of arrays, e.g. ``"[]"`` instead of ``[]`` or
+    ``"['a', 'b']"`` instead of ``["a", "b"]``.
+
+    This function inspects the model's type annotations and converts
+    any field annotated as ``list[...]`` from a string to a real list.
+    """
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        return content
+
+    if not isinstance(data, dict):
+        return content
+
+    for field_name, field_info in response_model.model_fields.items():
+        if field_name not in data:
+            continue
+        raw = data[field_name]
+        if not isinstance(raw, str):
+            continue
+
+        # Check if this field should be a list
+        origin = get_origin(field_info.annotation)
+        if origin is not list:
+            continue
+
+        # Try to parse the string as a list
+        try:
+            parsed = ast.literal_eval(raw)
+            if isinstance(parsed, list):
+                data[field_name] = parsed
+                continue
+        except (ValueError, SyntaxError, MemoryError):
+            pass
+
+        # Fallback: try json.loads (handles valid JSON arrays as strings)
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                data[field_name] = parsed
+                continue
+        except json.JSONDecodeError:
+            pass
+
+        # Last resort: empty list
+        data[field_name] = []
+
+    return json.dumps(data)
 
 
 class LLMProvider(ABC):
@@ -112,6 +167,7 @@ class LLMProvider(ABC):
         )
 
         content = _extract_json(content)
+        content = _sanitize_list_fields(content, response_model)
 
         try:
             return response_model.model_validate_json(content)

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ArchaiOrchestrator - Tests for the full pipeline orchestrator."""
 
 import asyncio
@@ -6,7 +7,7 @@ from unittest.mock import AsyncMock
 import networkx as nx
 import pytest
 
-from archai.http.models import (
+from archai.models import (
     BlastRadiusResponse,
     ChangeItem,
     ContextPacket,
