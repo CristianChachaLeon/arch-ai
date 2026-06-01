@@ -1,5 +1,5 @@
 [project]
-name = "archai"
+name = "archai-mcp"
 version = "0.1.0"
 description = "Cognitive Middleware for Architecture-Aware AI Coding Agents"
 readme = "README.md"
