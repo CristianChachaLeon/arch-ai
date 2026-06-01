@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "archai": {
+      "command": "uv",
+      "args": ["run", "archai", "mcp"]
+    }
+  }
+}

@@ -9,82 +9,88 @@ ArchAI is a middleware layer that governs how AI coding agents perceive and reas
 ## Quick Start
 
 ```bash
-# Using Makefile (recommended)
-make setup
-make run
-curl http://localhost:8000/health
+# Install
+uv sync
+
+# Process a repository
+uv run archai start .
+
+# Ask about the architecture
+uv run archai ask "how does the login work"
 ```
 
-## Setup
+## CLI Commands
 
-### Option 1: Using Makefile (recommended)
+| Command | Description |
+|---------|-------------|
+| `archai start [repo_path]` | Process a repository (bootstrap + inference pipeline) |
+| `archai ask "query"` | Ask a question about the architecture |
+| `archai mcp` | Start MCP server (stdio, for agent integration) |
+
+### Examples
 
 ```bash
-make setup          # Create venv and install dependencies
-make run            # Run the server
+# Process current directory
+archai start
+
+# Process another repo
+archai start /path/to/repo
+
+# Ask questions
+archai ask "how does the orchestrator work"
+archai ask "what constraints does the auth module have"
+
+# JSON output for scripting
+archai ask "orchestrator" --json | jq '.focus'
 ```
 
-### Option 2: Manual
+### Auto-Cache
 
-```bash
-# 1. Create virtual environment
-python3 -m venv .venv
+`archai ask` automatically runs `archai start` if no cache exists. You never need to run `archai start` manually — but can if you want to pre-process.
 
-# 2. Activate it (Linux/Mac)
-source .venv/bin/activate
+## MCP Integration (Agents)
 
-# OR (Windows)
-.venv\Scripts\activate
+ArchAI exposes 3 MCP tools for AI agents:
 
-# 3. Install dependencies (including dev tools)
-pip install -e ".[dev]"
+| Tool | Description |
+|------|-------------|
+| `get_architecture_context` | Get context packet for a query |
+| `validate_code_change` | Validate changes against constraints |
+| `get_blast_radius` | Analyze impact of changing a file |
+
+### Agent Configuration
+
+```json
+// .opencode/mcp.json
+{
+  "mcpServers": {
+    "archai": {
+      "command": "uv",
+      "args": ["run", "archai", "mcp"]
+    }
+  }
+}
 ```
 
 ## Development
 
-### Using Makefile (recommended)
-
-```bash
-make test           # Run tests
-make test-cov      # Run tests with coverage
-make format        # Format code (black + ruff)
-make lint          # Run ruff linter
-make type-check   # Run mypy type checker
-make clean         # Remove cache files
-```
-
-### Manual commands
-
 ```bash
 # Run tests
-pytest
+uv run pytest
 
 # Run with coverage
-pytest --cov=src --cov-report=html
+uv run pytest --cov=src --cov-report=html
 
-# Format code (black + ruff)
-black src/
-ruff check src/
-
-# Check types (mypy)
-mypy src/
-```
-
-## Running the Server
-
-```bash
-make run
-# or manually:
-source .venv/bin/activate
-uvicorn src.archai.http.main:app --reload --host 0.0.0.0 --port 8000
-
-# Test health endpoint
-curl http://localhost:8000/health
+# Format code
+uv run black src/
+uv run ruff check src/
 ```
 
 ## Architecture
 
-See `docs/001-sdd-mvp-architecture.md` for detailed specifications.
+See `docs/002-sdd-cli-mcp-architecture.md` for the current architecture spec.
+
+See `docs/001-sdd-mvp-architecture.md` for the original MVP spec (superseded by 002 for CLI/MCP sections).
 
 ## License
 
