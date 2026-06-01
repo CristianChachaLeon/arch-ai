@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import networkx as nx
 import pytest
 
-from archai.http.models import (
+from archai.models import (
     BlastRadiusResponse,
     ChangeItem,
     ContextPacket,

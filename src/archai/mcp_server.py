@@ -15,15 +15,21 @@ import os
 
 from mcp.server.fastmcp import FastMCP
 
-from archai.http.config import validate_repo_path
-from archai.http.models import ChangeItem
+from archai.config import validate_repo_path
+from archai.models import ChangeItem
 from archai.inference.llm import LiteLLMProvider
 from archai.middleware import ArchaiMiddleware
 from archai.orchestrator import ArchaiOrchestrator
 
 # --- Singletons (mirrors http/main.py) ---
 LLM_MODEL = os.environ.get("ARCHAI_LLM_MODEL")
-llm_provider = LiteLLMProvider(model=LLM_MODEL) if LLM_MODEL else None
+LLM_API_BASE = os.environ.get("ARCHAI_LLM_API_BASE")
+LLM_API_KEY = os.environ.get("ARCHAI_LLM_API_KEY")
+llm_provider = (
+    LiteLLMProvider(model=LLM_MODEL, api_base=LLM_API_BASE, api_key=LLM_API_KEY)
+    if LLM_MODEL
+    else None
+)
 middleware = ArchaiMiddleware(llm_provider=llm_provider)
 orchestrator = ArchaiOrchestrator(middleware)
 

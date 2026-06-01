@@ -36,14 +36,18 @@ def start(
 ):
     """Process a repository through the full ArchAI pipeline."""
     from archai.cli.output import format_process_result
-    from archai.http.config import detect_repo_root
+    from archai.config import detect_repo_root
     from archai.inference.llm.litellm_provider import LiteLLMProvider
     from archai.middleware.pipeline import ArchaiMiddleware
 
     resolved = repo_path or detect_repo_root()
 
     model = os.environ.get("ARCHAI_LLM_MODEL")
-    llm_provider = LiteLLMProvider(model=model) if model else None
+    api_base = os.environ.get("ARCHAI_LLM_API_BASE")
+    api_key = os.environ.get("ARCHAI_LLM_API_KEY")
+    llm_provider = (
+        LiteLLMProvider(model=model, api_base=api_base, api_key=api_key) if model else None
+    )
 
     middleware = ArchaiMiddleware(llm_provider=llm_provider)
 
@@ -69,7 +73,7 @@ def ask(
 ):
     """Ask a question about the repository architecture."""
     from archai.cli.output import format_context_packet
-    from archai.http.config import detect_repo_root
+    from archai.config import detect_repo_root
     from archai.inference.llm.litellm_provider import LiteLLMProvider
     from archai.middleware.pipeline import ArchaiMiddleware
     from archai.orchestrator.orchestrator import ArchaiOrchestrator
@@ -77,7 +81,11 @@ def ask(
     resolved = repo_path or detect_repo_root()
 
     model = os.environ.get("ARCHAI_LLM_MODEL")
-    llm_provider = LiteLLMProvider(model=model) if model else None
+    api_base = os.environ.get("ARCHAI_LLM_API_BASE")
+    api_key = os.environ.get("ARCHAI_LLM_API_KEY")
+    llm_provider = (
+        LiteLLMProvider(model=model, api_base=api_base, api_key=api_key) if model else None
+    )
 
     middleware = ArchaiMiddleware(llm_provider=llm_provider)
     orchestrator = ArchaiOrchestrator(middleware)
@@ -95,9 +103,10 @@ def ask(
 
 @app.command()
 def mcp():
-    """Start ArchAI in MCP server mode."""
-    typer.echo("MCP server mode - use archai mcp to start")
-    raise typer.Exit(code=0)
+    """Start ArchAI in MCP server mode (stdio, for AI agents)."""
+    from archai.mcp_server import mcp as mcp_app
+
+    mcp_app.run(transport="stdio")
 
 
 if __name__ == "__main__":

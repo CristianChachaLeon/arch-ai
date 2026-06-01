@@ -8,7 +8,7 @@ import asyncio
 import re
 from collections import deque
 
-from archai.http.models import (
+from archai.models import (
     BlastRadiusResponse,
     ChangeItem,
     ContextPacket,
