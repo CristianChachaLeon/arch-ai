@@ -12,7 +12,7 @@ help:
 	@echo "  make lint       - Run ruff linter"
 	@echo "  make type-check - Run mypy type checker"
 	@echo "  make clean      - Remove cache files and coverage data"
-	@echo "  make run        - Run the FastAPI server"
+	@echo "  make run        - (redirect) Use archai CLI directly"
 	@echo ""
 	@echo "  source .venv/bin/activate  - Activate virtual environment"
 
@@ -70,4 +70,4 @@ clean:
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
 run:
-	.venv/bin/uvicorn src.archai.http.main:app --reload --host 0.0.0.0 --port 8000
+	@echo "Use 'archai start' or 'archai mcp' instead. See 'archai --help'."
