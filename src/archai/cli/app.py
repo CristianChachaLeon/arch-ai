@@ -143,19 +143,22 @@ def init(
     if config_file.exists() and not force:
         typer.echo(
             typer.style(
-                "⚠ .opencode.json already has mcpServers configured. Use --force to overwrite.",
+                "⚠ .opencode.json already exists. Use --force to overwrite.",
                 fg="yellow",
             )
         )
         raise typer.Exit(code=0)
 
-    mcp_config = {
-        "type": "stdio",
-        "command": "archai" if no_uv else "uv",
-        "args": ["mcp"] if no_uv else ["run", "archai", "mcp"],
-        "env": [],
+    command = (
+        ["archai", "mcp"]
+        if no_uv
+        else ["uv", "run", "archai", "mcp"]
+    )
+    existing.setdefault("mcp", {})["archai"] = {
+        "type": "local",
+        "command": command,
+        "enabled": True,
     }
-    existing.setdefault("mcpServers", {})["archai"] = mcp_config
 
     config_file.write_text(json.dumps(existing, indent=2) + "\n")
 

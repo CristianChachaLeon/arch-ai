@@ -282,16 +282,14 @@ class TestInit:
     """Tests for the ``init`` command."""
 
     MCP_SERVER_UV = {
-        "type": "stdio",
-        "command": "uv",
-        "args": ["run", "archai", "mcp"],
-        "env": [],
+        "type": "local",
+        "command": ["uv", "run", "archai", "mcp"],
+        "enabled": True,
     }
     MCP_SERVER_DIRECT = {
-        "type": "stdio",
-        "command": "archai",
-        "args": ["mcp"],
-        "env": [],
+        "type": "local",
+        "command": ["archai", "mcp"],
+        "enabled": True,
     }
 
     def test_creates_opencode_json(self, tmp_path):
@@ -300,19 +298,19 @@ class TestInit:
         config_file = tmp_path / ".opencode.json"
         assert config_file.exists()
         config = json.loads(config_file.read_text())
-        assert config == {"mcpServers": {"archai": self.MCP_SERVER_UV}}
+        assert config == {"mcp": {"archai": self.MCP_SERVER_UV}}
 
     def test_uses_uv_by_default(self, tmp_path):
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
         config = json.loads((tmp_path / ".opencode.json").read_text())
-        assert config["mcpServers"]["archai"] == self.MCP_SERVER_UV
+        assert config["mcp"]["archai"] == self.MCP_SERVER_UV
 
     def test_no_uv_flag_uses_direct(self, tmp_path):
         result = runner.invoke(app, ["init", str(tmp_path), "--no-uv"])
         assert result.exit_code == 0
         config = json.loads((tmp_path / ".opencode.json").read_text())
-        assert config["mcpServers"]["archai"] == self.MCP_SERVER_DIRECT
+        assert config["mcp"]["archai"] == self.MCP_SERVER_DIRECT
 
     def test_respects_force_flag(self, tmp_path):
         config_file = tmp_path / ".opencode.json"
@@ -324,14 +322,13 @@ class TestInit:
         result = runner.invoke(app, ["init", str(tmp_path), "--force"])
         assert result.exit_code == 0
         config = json.loads(config_file.read_text())
-        assert config["mcpServers"]["archai"] == self.MCP_SERVER_UV
+        assert config["mcp"]["archai"] == self.MCP_SERVER_UV
 
     def test_preserves_existing_config(self, tmp_path):
         config_file = tmp_path / ".opencode.json"
-        config_file.write_text(json.dumps({"data": {"directory": ".opencode"}, "mcpServers": {"other": {"type": "stdio", "command": "other"}}}))
+        config_file.write_text(json.dumps({"data": {"directory": ".opencode"}}))
         result = runner.invoke(app, ["init", str(tmp_path), "--force"])
         assert result.exit_code == 0
         config = json.loads(config_file.read_text())
         assert config["data"]["directory"] == ".opencode"
-        assert "other" in config["mcpServers"]
-        assert "archai" in config["mcpServers"]
+        assert config["mcp"]["archai"] == self.MCP_SERVER_UV
