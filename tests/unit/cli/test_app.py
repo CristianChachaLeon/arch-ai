@@ -27,6 +27,7 @@ class TestCliHelp:
         assert "start" in result.output
         assert "ask" in result.output
         assert "mcp" in result.output
+        assert "init" in result.output
 
     def test_start_help(self):
         result = runner.invoke(app, ["start", "--help"])
@@ -275,3 +276,56 @@ class TestMcpCommand:
             result = runner.invoke(app, ["mcp"])
             assert result.exit_code == 0
             mock_mcp.run.assert_called_once_with(transport="stdio")
+
+
+class TestInit:
+    """Tests for the ``init`` command."""
+
+    def test_creates_mcp_json(self, tmp_path):
+        result = runner.invoke(app, ["init", str(tmp_path)])
+        assert result.exit_code == 0
+        mcp_file = tmp_path / ".opencode" / "mcp.json"
+        assert mcp_file.exists()
+        config = json.loads(mcp_file.read_text())
+        assert config == {
+            "mcpServers": {
+                "archai": {
+                    "command": "uv",
+                    "args": ["run", "archai", "mcp"],
+                }
+            }
+        }
+
+    def test_uses_uv_by_default(self, tmp_path):
+        result = runner.invoke(app, ["init", str(tmp_path)])
+        assert result.exit_code == 0
+        config = json.loads((tmp_path / ".opencode" / "mcp.json").read_text())
+        assert config["mcpServers"]["archai"]["command"] == "uv"
+        assert config["mcpServers"]["archai"]["args"] == ["run", "archai", "mcp"]
+
+    def test_no_uv_flag_uses_direct(self, tmp_path):
+        result = runner.invoke(app, ["init", str(tmp_path), "--no-uv"])
+        assert result.exit_code == 0
+        config = json.loads((tmp_path / ".opencode" / "mcp.json").read_text())
+        assert config["mcpServers"]["archai"]["command"] == "archai"
+        assert config["mcpServers"]["archai"]["args"] == ["mcp"]
+
+    def test_respects_force_flag(self, tmp_path):
+        opencode_dir = tmp_path / ".opencode"
+        opencode_dir.mkdir()
+        mcp_file = opencode_dir / "mcp.json"
+        mcp_file.write_text('{"existing": true}')
+        result = runner.invoke(app, ["init", str(tmp_path)])
+        assert result.exit_code == 0
+        assert json.loads(mcp_file.read_text()) == {"existing": True}
+
+        result = runner.invoke(app, ["init", str(tmp_path), "--force"])
+        assert result.exit_code == 0
+        config = json.loads(mcp_file.read_text())
+        assert config["mcpServers"]["archai"]["command"] == "uv"
+
+    def test_creates_directory_if_not_exists(self, tmp_path):
+        result = runner.invoke(app, ["init", str(tmp_path)])
+        assert result.exit_code == 0
+        assert (tmp_path / ".opencode" / "mcp.json").exists()
+        assert (tmp_path / ".opencode").is_dir()

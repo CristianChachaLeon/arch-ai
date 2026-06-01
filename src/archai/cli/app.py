@@ -7,7 +7,9 @@ and validating changes.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+from pathlib import Path
 
 import typer
 
@@ -107,6 +109,66 @@ def mcp():
     from archai.mcp_server import mcp as mcp_app
 
     mcp_app.run(transport="stdio")
+
+
+@app.command()
+def init(
+    project_dir: str = typer.Argument(".", help="Project directory to configure"),
+    model: str = typer.Option(
+        None, "--model", "-m", help="LLM model (e.g. gpt-4, claude-sonnet-4-20250514)"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Overwrite existing .opencode/mcp.json"
+    ),
+    no_uv: bool = typer.Option(
+        False, "--no-uv", help="Use 'archai mcp' directly instead of 'uv run archai mcp'"
+    ),
+):
+    """Initialize archai in a project for OpenCode MCP integration.
+
+    Creates .opencode/mcp.json with the MCP server configuration
+    so OpenCode can discover and call archai's architecture tools.
+    """
+    project_path = Path(project_dir).resolve()
+    opencode_dir = project_path / ".opencode"
+    mcp_file = opencode_dir / "mcp.json"
+
+    if mcp_file.exists() and not force:
+        typer.echo(
+            typer.style(
+                "⚠ .opencode/mcp.json already exists. Use --force to overwrite.",
+                fg="yellow",
+            )
+        )
+        raise typer.Exit(code=0)
+
+    opencode_dir.mkdir(parents=True, exist_ok=True)
+
+    config = {
+        "mcpServers": {
+            "archai": {
+                "command": "archai" if no_uv else "uv",
+                "args": ["mcp"] if no_uv else ["run", "archai", "mcp"],
+            }
+        }
+    }
+
+    mcp_file.write_text(json.dumps(config, indent=2) + "\n")
+
+    typer.echo(typer.style("✓ Created .opencode/mcp.json", fg="green"))
+
+    if model:
+        typer.echo(
+            typer.style(
+                f"ℹ Add ARCHAI_LLM_MODEL={model} to your .env file",
+                fg="blue",
+            )
+        )
+
+    typer.echo("")
+    typer.echo("Next steps:")
+    typer.echo("  1. Set your LLM provider environment variables in .env")
+    typer.echo("  2. Open this directory in OpenCode")
 
 
 if __name__ == "__main__":

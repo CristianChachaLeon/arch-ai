@@ -268,6 +268,7 @@ class TestMcpServerEnvVars:
         sys.modules.pop("archai.mcp_server", None)
         with (
             patch.dict(os.environ, {}, clear=True),
+            patch("dotenv.load_dotenv"),  # prevent .env from re-populating env vars
             patch("archai.middleware.ArchaiMiddleware") as mock_mw_cls,
             patch("archai.orchestrator.ArchaiOrchestrator") as mock_orch_cls,
             patch("archai.config.validate_repo_path", lambda p: p),

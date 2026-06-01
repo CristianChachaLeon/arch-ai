@@ -21,8 +21,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install dependencies
-        run: pip install -e ".[dev,mcp]"
+        run: uv sync --extra dev --frozen
 
       - name: Run tests and coverage
         id: test-coverage
