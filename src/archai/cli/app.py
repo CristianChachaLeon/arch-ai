@@ -111,6 +111,108 @@ def mcp():
     mcp_app.run(transport="stdio")
 
 
+# --- LLM auto-detection ---
+# Priority: --model flag > ARCHAI_LLM_MODEL env > OpenCode config > API key env vars > default
+
+_OPENCODE_CONFIG_PATHS = (
+    Path.home() / ".config" / "opencode" / "opencode.json",
+    Path.home() / ".opencode" / "opencode.json",
+)
+
+_OPENCODE_PROPRIETARY_PREFIXES = ("opencode/",)
+
+_API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY")
+
+_API_KEY_TO_DEFAULT_MODEL = {
+    "ANTHROPIC_API_KEY": "claude-sonnet-4-20250514",
+    "OPENAI_API_KEY": "gpt-4o",
+    "GEMINI_API_KEY": "gemini-2.0-flash",
+    "GROQ_API_KEY": "llama-3.3-70b-versatile",
+}
+
+_OPENCODE_PROVIDER_TO_API_BASE = {
+    "ollama": {"ollama": True},  # litellm handles ollama natively
+}
+
+
+def _read_opencode_config() -> dict | None:
+    """Read OpenCode's config file from standard paths."""
+    for path in _OPENCODE_CONFIG_PATHS:
+        if path.exists():
+            try:
+                return json.loads(path.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+    return None
+
+
+def _extract_opencode_llm(opencode_config: dict) -> tuple[str | None, str | None, str | None]:
+    """Extract (model, api_base, api_key_source) from OpenCode config.
+
+    Looks at agent model references and provider configs to find
+    the first non-proprietary model usable by litellm.
+    """
+    providers = opencode_config.get("provider", {})
+    agents = opencode_config.get("agent", {})
+
+    # Collect all unique models from agents (skip proprietary OpenCode models)
+    agent_models: set[str] = set()
+    for agent_cfg in agents.values():
+        m = agent_cfg.get("model", "")
+        if not any(m.startswith(p) for p in _OPENCODE_PROPRIETARY_PREFIXES):
+            agent_models.add(m)
+
+    if not agent_models:
+        return None, None, None
+
+    # Pick the first usable model
+    model = next(iter(agent_models))
+
+    # Extract provider prefix (e.g. "ollama" from "ollama/qwen2.5-coder:7b")
+    provider_name = model.split("/")[0] if "/" in model else ""
+    if provider_name and provider_name in providers:
+        provider_cfg = providers[provider_name]
+        options = provider_cfg.get("options", {})
+        api_base = options.get("baseURL")
+        return model, api_base, f"OpenCode ({provider_name})"
+
+    return model, None, f"OpenCode (provider: {provider_name})" if provider_name else None
+
+
+def _detect_llm_config(override_model: str | None) -> tuple[list[str], str, str | None]:
+    """Detect LLM configuration from all available sources.
+
+    Returns (detected_keys, resolved_model, source_info).
+    Source info is a human-readable string like "OpenCode (ollama)".
+    """
+    detected = [k for k in _API_KEY_ENV_VARS if os.environ.get(k)]
+
+    # Priority 1: explicit --model flag
+    if override_model:
+        return detected, override_model, "--model flag"
+
+    # Priority 2: ARCHAI_LLM_MODEL env var
+    env_model = os.environ.get("ARCHAI_LLM_MODEL")
+    if env_model:
+        return detected, env_model, "ARCHAI_LLM_MODEL env"
+
+    # Priority 3: OpenCode config
+    opencode_config = _read_opencode_config()
+    if opencode_config:
+        oc_model, oc_api_base, oc_source = _extract_opencode_llm(opencode_config)
+        if oc_model:
+            if oc_api_base:
+                os.environ["ARCHAI_LLM_API_BASE"] = oc_api_base
+            return detected, oc_model, oc_source or "OpenCode"
+
+    # Priority 4: API key auto-detect
+    if detected:
+        return detected, _API_KEY_TO_DEFAULT_MODEL[detected[0]], "auto-detect (env)"
+
+    # Priority 5: built-in default
+    return detected, "claude-sonnt-4-20250514", "built-in default"
+
+
 @app.command()
 def init(
     project_dir: str = typer.Argument(".", help="Project directory to configure"),
@@ -128,6 +230,9 @@ def init(
 
     Creates .opencode.json with the MCP server configuration so OpenCode
     can discover and call archai's architecture tools in this project.
+
+    The configuration includes environment passthrough — OpenCode will
+    forward your LLM API keys and model setting to archai automatically.
     """
     project_path = Path(project_dir).resolve()
     config_file = project_path / ".opencode.json"
@@ -149,42 +254,48 @@ def init(
         )
         raise typer.Exit(code=0)
 
+    # Detect LLM and build environment passthrough
+    detected_keys, resolved_model, source = _detect_llm_config(model)
+    env_passthrough: dict[str, str] = {}
+    for key in _API_KEY_ENV_VARS:
+        env_passthrough[key] = "{env:" + key + "}"
+    env_passthrough["ARCHAI_LLM_MODEL"] = "{env:ARCHAI_LLM_MODEL}"
+    # If we detected an API base from OpenCode, pass it through too
+    api_base = os.environ.get("ARCHAI_LLM_API_BASE")
+    if api_base:
+        env_passthrough["ARCHAI_LLM_API_BASE"] = api_base
+
     command = ["uv", "run", "archai", "mcp"] if uv else ["archai", "mcp"]
     existing.setdefault("mcp", {})["archai"] = {
         "type": "local",
         "command": command,
         "enabled": True,
+        "environment": env_passthrough,
     }
 
     config_file.write_text(json.dumps(existing, indent=2) + "\n")
 
     typer.echo(typer.style("✓ Configured archai MCP server in .opencode.json", fg="green"))
+    typer.echo("")
 
-    # Detect LLM config from environment
-    detected_keys = [
-        k
-        for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY")
-        if os.environ.get(k)
-    ]
-    llm_model = model or os.environ.get("ARCHAI_LLM_MODEL") or "claude-sonnet-4-20250514 (default)"
-
-    if detected_keys:
-        typer.echo("")
+    if source and "OpenCode" in source:
+        typer.echo(typer.style(f"🔑 Using LLM from {source}", fg="cyan"))
+        typer.echo(typer.style("   Model:", fg="cyan") + f" {resolved_model}")
+        if api_base:
+            typer.echo(typer.style("   API Base:", fg="cyan") + f" {api_base}")
+    elif detected_keys:
         typer.echo(typer.style("🔑 LLM detected:", fg="cyan") + f" {', '.join(detected_keys)}")
-        typer.echo(typer.style("   Model:", fg="cyan") + f" {llm_model}")
+        typer.echo(typer.style("   Model:", fg="cyan") + f" {resolved_model}")
     else:
-        typer.echo("")
         typer.echo(
             typer.style(
-                "⚠ No API keys detected. Semantic features will be degraded.\n"
-                "  Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or similar in your .env file.",
+                "⚠ No LLM configuration found.\n"
+                "  archai will use its default model, but for best results\n"
+                "  configure your LLM in OpenCode first, then run archai init again.",
                 fg="yellow",
             )
         )
-        if model:
-            typer.echo(
-                typer.style(f"   Model: {model} (set — don't forget the API key!)", fg="cyan")
-            )
+        typer.echo(typer.style("   Model:", fg="cyan") + f" {resolved_model}")
 
     typer.echo("")
     typer.echo(typer.style("✓ archai is ready! Open this directory in OpenCode.", fg="green"))

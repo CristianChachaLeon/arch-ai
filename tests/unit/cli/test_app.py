@@ -278,6 +278,15 @@ class TestMcpCommand:
             mock_mcp.run.assert_called_once_with(transport="stdio")
 
 
+_ENV_PASSTHROUGH = {
+    "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
+    "OPENAI_API_KEY": "{env:OPENAI_API_KEY}",
+    "GEMINI_API_KEY": "{env:GEMINI_API_KEY}",
+    "GROQ_API_KEY": "{env:GROQ_API_KEY}",
+    "ARCHAI_LLM_MODEL": "{env:ARCHAI_LLM_MODEL}",
+}
+
+
 class TestInit:
     """Tests for the ``init`` command."""
 
@@ -285,11 +294,13 @@ class TestInit:
         "type": "local",
         "command": ["uv", "run", "archai", "mcp"],
         "enabled": True,
+        "environment": _ENV_PASSTHROUGH,
     }
     MCP_SERVER_DIRECT = {
         "type": "local",
         "command": ["archai", "mcp"],
         "enabled": True,
+        "environment": _ENV_PASSTHROUGH,
     }
 
     def test_creates_opencode_json(self, tmp_path):
@@ -332,3 +343,23 @@ class TestInit:
         config = json.loads(config_file.read_text())
         assert config["data"]["directory"] == ".opencode"
         assert config["mcp"]["archai"] == self.MCP_SERVER_DIRECT
+
+    def test_auto_detect_anthropic_key(self, tmp_path):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-fake"}, clear=True):
+            result = runner.invoke(app, ["init", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "ANTHROPIC_API_KEY" in result.output
+            assert "claude-sonnet-4-20250514" in result.output
+
+    def test_auto_detect_openai_key(self, tmp_path):
+        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-fake"}, clear=True):
+            result = runner.invoke(app, ["init", str(tmp_path)])
+            assert result.exit_code == 0
+            assert "OPENAI_API_KEY" in result.output
+            assert "gpt-4o" in result.output
+
+    def test_explicit_model_overrides_default(self, tmp_path):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-fake"}, clear=True):
+            result = runner.invoke(app, ["init", str(tmp_path), "--model", "my-custom-model"])
+            assert result.exit_code == 0
+            assert "my-custom-model" in result.output
