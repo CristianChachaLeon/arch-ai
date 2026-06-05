@@ -11,8 +11,8 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import os
-import sys
 
 from dotenv import load_dotenv
 
@@ -24,24 +24,41 @@ from archai.inference.llm import LiteLLMProvider
 from archai.middleware import ArchaiMiddleware
 from archai.orchestrator import ArchaiOrchestrator
 
+logger = logging.getLogger("archai.mcp")
+
 load_dotenv()
 
-# --- Singletons (mirrors http/main.py) ---
+# --- LLM Provider ---
+# litellm reads standard API keys from env vars automatically:
+#   ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, etc.
+# ARCHAI_LLM_MODEL overrides the default model if set.
+#
+# The provider is ALWAYS initialized — LiteLLMProvider has a built-in
+# default model (claude-sonnet-4-20250514). If the user has no API keys
+# configured, semantic features degrade gracefully.
+
 LLM_MODEL = os.environ.get("ARCHAI_LLM_MODEL")
 LLM_API_BASE = os.environ.get("ARCHAI_LLM_API_BASE")
 LLM_API_KEY = os.environ.get("ARCHAI_LLM_API_KEY")
-llm_provider = (
-    LiteLLMProvider(model=LLM_MODEL, api_base=LLM_API_BASE, api_key=LLM_API_KEY)
-    if LLM_MODEL
-    else None
-)
-if not LLM_MODEL:
-    print(
-        "[WARNING] ARCHAI_LLM_MODEL is not set. Semantic labeling and constraint "
-        "inference will be disabled.\n"
-        "Set it in .env file: ARCHAI_LLM_MODEL=claude-sonnet-4-20250514",
-        file=sys.stderr,
-        flush=True,
+llm_provider = LiteLLMProvider(model=LLM_MODEL, api_base=LLM_API_BASE, api_key=LLM_API_KEY)
+
+_detected = [
+    k
+    for k in (
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GROQ_API_KEY",
+        "ARCHAI_LLM_API_KEY",
+    )
+    if os.environ.get(k)
+]
+if _detected:
+    logger.info("LLM configured — detected %s", ", ".join(_detected))
+else:
+    logger.info(
+        "No API keys detected. Semantic features will be degraded. "
+        "Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or similar in .env"
     )
 middleware = ArchaiMiddleware(llm_provider=llm_provider)
 orchestrator = ArchaiOrchestrator(middleware)
