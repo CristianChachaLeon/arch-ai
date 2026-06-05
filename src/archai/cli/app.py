@@ -120,8 +120,8 @@ def init(
     force: bool = typer.Option(
         False, "--force", "-f", help="Overwrite existing .opencode/mcp.json"
     ),
-    no_uv: bool = typer.Option(
-        False, "--no-uv", help="Use 'archai mcp' directly instead of 'uv run archai mcp'"
+    uv: bool = typer.Option(
+        False, "--uv", help="Use 'uv run archai mcp' instead of 'archai mcp' directly"
     ),
 ):
     """Initialize archai in a project for OpenCode MCP integration.
@@ -149,11 +149,7 @@ def init(
         )
         raise typer.Exit(code=0)
 
-    command = (
-        ["archai", "mcp"]
-        if no_uv
-        else ["uv", "run", "archai", "mcp"]
-    )
+    command = ["uv", "run", "archai", "mcp"] if uv else ["archai", "mcp"]
     existing.setdefault("mcp", {})["archai"] = {
         "type": "local",
         "command": command,
