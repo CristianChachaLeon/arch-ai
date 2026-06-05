@@ -422,7 +422,9 @@ def init(
     env_passthrough: dict[str, str] = {}
     for key in _ALL_LLM_ENV_KEYS:
         env_passthrough[key] = "{env:" + key + "}"
-    env_passthrough["ARCHAI_LLM_MODEL"] = "{env:ARCHAI_LLM_MODEL}"
+    env_passthrough["ARCHAI_LLM_MODEL"] = (
+        resolved_model if resolved_model else "{env:ARCHAI_LLM_MODEL}"
+    )
     env_passthrough["ARCHAI_LLM_API_KEY"] = "{env:ARCHAI_LLM_API_KEY}"
     # If we detected an API base from OpenCode, pass it through too
     api_base = os.environ.get("ARCHAI_LLM_API_BASE")

@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 from typer.testing import CliRunner
 
-from archai.cli.app import app
+from archai.cli.app import _ALL_LLM_ENV_KEYS, app
 
 runner = CliRunner()
 
@@ -288,7 +288,7 @@ _ENV_PASSTHROUGH = {
     "DEEPSEEK_API_KEY": "{env:DEEPSEEK_API_KEY}",
     "MISTRAL_API_KEY": "{env:MISTRAL_API_KEY}",
     "TOGETHER_API_KEY": "{env:TOGETHER_API_KEY}",
-    "ARCHAI_LLM_MODEL": "{env:ARCHAI_LLM_MODEL}",
+    "ARCHAI_LLM_MODEL": "claude-sonnet-4-20250514",  # built-in default
     "ARCHAI_LLM_API_KEY": "{env:ARCHAI_LLM_API_KEY}",
 }
 
@@ -315,19 +315,39 @@ class TestInit:
         config_file = tmp_path / ".opencode.json"
         assert config_file.exists()
         config = json.loads(config_file.read_text())
-        assert config == {"mcp": {"archai": self.MCP_SERVER_DIRECT}}
+        archai_cfg = config["mcp"]["archai"]
+        assert archai_cfg["type"] == "local"
+        assert archai_cfg["command"] == ["archai", "mcp"]
+        assert archai_cfg["enabled"] is True
+        env = archai_cfg["environment"]
+        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
+        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
+        for key in _ALL_LLM_ENV_KEYS:
+            assert env.get(key) == "{env:" + key + "}"
 
     def test_uses_direct_by_default(self, tmp_path):
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
         config = json.loads((tmp_path / ".opencode.json").read_text())
-        assert config["mcp"]["archai"] == self.MCP_SERVER_DIRECT
+        archai_cfg = config["mcp"]["archai"]
+        assert archai_cfg["type"] == "local"
+        assert archai_cfg["command"] == ["archai", "mcp"]
+        assert archai_cfg["enabled"] is True
+        env = archai_cfg["environment"]
+        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
+        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
 
     def test_uv_flag_uses_uv_run(self, tmp_path):
         result = runner.invoke(app, ["init", str(tmp_path), "--uv"])
         assert result.exit_code == 0
         config = json.loads((tmp_path / ".opencode.json").read_text())
-        assert config["mcp"]["archai"] == self.MCP_SERVER_UV
+        archai_cfg = config["mcp"]["archai"]
+        assert archai_cfg["type"] == "local"
+        assert archai_cfg["command"] == ["uv", "run", "archai", "mcp"]
+        assert archai_cfg["enabled"] is True
+        env = archai_cfg["environment"]
+        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
+        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
 
     def test_respects_force_flag(self, tmp_path):
         config_file = tmp_path / ".opencode.json"
@@ -339,7 +359,13 @@ class TestInit:
         result = runner.invoke(app, ["init", str(tmp_path), "--force"])
         assert result.exit_code == 0
         config = json.loads(config_file.read_text())
-        assert config["mcp"]["archai"] == self.MCP_SERVER_DIRECT
+        archai_cfg = config["mcp"]["archai"]
+        assert archai_cfg["type"] == "local"
+        assert archai_cfg["command"] == ["archai", "mcp"]
+        assert archai_cfg["enabled"] is True
+        env = archai_cfg["environment"]
+        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
+        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
 
     def test_preserves_existing_config(self, tmp_path):
         config_file = tmp_path / ".opencode.json"
@@ -348,7 +374,13 @@ class TestInit:
         assert result.exit_code == 0
         config = json.loads(config_file.read_text())
         assert config["data"]["directory"] == ".opencode"
-        assert config["mcp"]["archai"] == self.MCP_SERVER_DIRECT
+        archai_cfg = config["mcp"]["archai"]
+        assert archai_cfg["type"] == "local"
+        assert archai_cfg["command"] == ["archai", "mcp"]
+        assert archai_cfg["enabled"] is True
+        env = archai_cfg["environment"]
+        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
+        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
 
     def test_auto_detect_anthropic_key(self, tmp_path):
         with (
@@ -361,7 +393,7 @@ class TestInit:
             assert "claude-sonnet-4-20250514" in result.output
         config = json.loads((tmp_path / ".opencode.json").read_text())
         env = config["mcp"]["archai"]["environment"]
-        assert env["ARCHAI_LLM_MODEL"] == "{env:ARCHAI_LLM_MODEL}"
+        assert env["ARCHAI_LLM_MODEL"] == "claude-sonnet-4-20250514"
         assert "ARCHAI_LLM_API_KEY" in env
 
     def test_auto_detect_openai_key(self, tmp_path):
@@ -375,7 +407,7 @@ class TestInit:
             assert "gpt-4o" in result.output
         config = json.loads((tmp_path / ".opencode.json").read_text())
         env = config["mcp"]["archai"]["environment"]
-        assert env["ARCHAI_LLM_MODEL"] == "{env:ARCHAI_LLM_MODEL}"
+        assert env["ARCHAI_LLM_MODEL"] == "gpt-4o"
         assert "ARCHAI_LLM_API_KEY" in env
 
     def test_explicit_model_overrides_default(self, tmp_path):
@@ -388,7 +420,7 @@ class TestInit:
             assert "my-custom-model" in result.output
         config = json.loads((tmp_path / ".opencode.json").read_text())
         env = config["mcp"]["archai"]["environment"]
-        assert env["ARCHAI_LLM_MODEL"] == "{env:ARCHAI_LLM_MODEL}"
+        assert env["ARCHAI_LLM_MODEL"] == "my-custom-model"
         assert "ARCHAI_LLM_API_KEY" in env
 
     def test_custom_provider_flow(self, tmp_path):
