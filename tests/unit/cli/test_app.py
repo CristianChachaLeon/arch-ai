@@ -345,21 +345,30 @@ class TestInit:
         assert config["mcp"]["archai"] == self.MCP_SERVER_DIRECT
 
     def test_auto_detect_anthropic_key(self, tmp_path):
-        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-fake"}, clear=True):
+        with (
+            mock.patch("archai.cli.app._read_opencode_config", return_value=None),
+            mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-fake"}, clear=True),
+        ):
             result = runner.invoke(app, ["init", str(tmp_path)])
             assert result.exit_code == 0
             assert "ANTHROPIC_API_KEY" in result.output
             assert "claude-sonnet-4-20250514" in result.output
 
     def test_auto_detect_openai_key(self, tmp_path):
-        with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-fake"}, clear=True):
+        with (
+            mock.patch("archai.cli.app._read_opencode_config", return_value=None),
+            mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-fake"}, clear=True),
+        ):
             result = runner.invoke(app, ["init", str(tmp_path)])
             assert result.exit_code == 0
             assert "OPENAI_API_KEY" in result.output
             assert "gpt-4o" in result.output
 
     def test_explicit_model_overrides_default(self, tmp_path):
-        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-fake"}, clear=True):
+        with (
+            mock.patch("archai.cli.app._read_opencode_config", return_value=None),
+            mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-fake"}, clear=True),
+        ):
             result = runner.invoke(app, ["init", str(tmp_path), "--model", "my-custom-model"])
             assert result.exit_code == 0
             assert "my-custom-model" in result.output

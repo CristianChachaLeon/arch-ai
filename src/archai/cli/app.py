@@ -155,12 +155,13 @@ def _extract_opencode_llm(opencode_config: dict) -> tuple[str | None, str | None
     providers = opencode_config.get("provider", {})
     agents = opencode_config.get("agent", {})
 
-    # Collect all unique models from agents (skip proprietary OpenCode models)
+    # Collect all unique models from agents (skip empty and proprietary)
     agent_models: set[str] = set()
     for agent_cfg in agents.values():
         m = agent_cfg.get("model", "")
-        if not any(m.startswith(p) for p in _OPENCODE_PROPRIETARY_PREFIXES):
-            agent_models.add(m)
+        if not m or any(m.startswith(p) for p in _OPENCODE_PROPRIETARY_PREFIXES):
+            continue
+        agent_models.add(m)
 
     if not agent_models:
         return None, None, None
@@ -210,7 +211,7 @@ def _detect_llm_config(override_model: str | None) -> tuple[list[str], str, str 
         return detected, _API_KEY_TO_DEFAULT_MODEL[detected[0]], "auto-detect (env)"
 
     # Priority 5: built-in default
-    return detected, "claude-sonnt-4-20250514", "built-in default"
+    return detected, "claude-sonnet-4-20250514", "built-in default"
 
 
 @app.command()
