@@ -289,6 +289,7 @@ _ENV_PASSTHROUGH = {
     "MISTRAL_API_KEY": "{env:MISTRAL_API_KEY}",
     "TOGETHER_API_KEY": "{env:TOGETHER_API_KEY}",
     "ARCHAI_LLM_MODEL": "{env:ARCHAI_LLM_MODEL}",
+    "ARCHAI_LLM_API_KEY": "{env:ARCHAI_LLM_API_KEY}",
 }
 
 
@@ -377,3 +378,20 @@ class TestInit:
             result = runner.invoke(app, ["init", str(tmp_path), "--model", "my-custom-model"])
             assert result.exit_code == 0
             assert "my-custom-model" in result.output
+
+    def test_custom_provider_flow(self, tmp_path):
+        with (
+            mock.patch("archai.cli.app._discover_providers", return_value=[]),
+            mock.patch.dict(os.environ, {}, clear=True),
+        ):
+            result = runner.invoke(
+                app,
+                ["init", str(tmp_path), "--interactive"],
+                input="1\ntest-model\nsk-test-key-123\nhttps://custom.api.com\n",
+            )
+        assert result.exit_code == 0
+        config = json.loads((tmp_path / ".opencode.json").read_text())
+        env = config["mcp"]["archai"]["environment"]
+        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
+        assert "test-model" in result.output
+        assert "ARCHAI_LLM_API_KEY" in result.output

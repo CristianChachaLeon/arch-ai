@@ -320,17 +320,14 @@ def _detect_llm_config(
         except (ValueError, IndexError):
             # Custom — ask for model, API key, and base URL
             model = typer.prompt("  Model name", default="gpt-4o")
-            key_var = typer.prompt(
-                "  API key env var (e.g. OPENAI_API_KEY, DEEPSEEK_API_KEY)",
-                default="",
-            )
+            api_key = typer.prompt("  API key", default="", hide_input=True)
             api_base = typer.prompt("  API base URL (optional, press Enter to skip)", default="")
-            if key_var:
-                os.environ[key_var] = typer.prompt(f"  Value for {key_var}", default="")
+            if api_key:
+                os.environ["ARCHAI_LLM_API_KEY"] = api_key
             if api_base:
                 os.environ["ARCHAI_LLM_API_BASE"] = api_base
             detected = [k for k in _ALL_LLM_ENV_KEYS if os.environ.get(k)]
-            return detected, model, "manual", key_var or None
+            return detected, model, "manual", "ARCHAI_LLM_API_KEY" if api_key else None
 
         # Apply the selection
         if picked["api_base"]:
@@ -422,6 +419,7 @@ def init(
     for key in _ALL_LLM_ENV_KEYS:
         env_passthrough[key] = "{env:" + key + "}"
     env_passthrough["ARCHAI_LLM_MODEL"] = "{env:ARCHAI_LLM_MODEL}"
+    env_passthrough["ARCHAI_LLM_API_KEY"] = "{env:ARCHAI_LLM_API_KEY}"
     # If we detected an API base from OpenCode, pass it through too
     api_base = os.environ.get("ARCHAI_LLM_API_BASE")
     if api_base:
