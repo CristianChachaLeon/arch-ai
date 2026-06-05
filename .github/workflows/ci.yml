@@ -25,13 +25,13 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --frozen
 
       - name: Run tests and coverage
         id: test-coverage
         run: |
             set -o pipefail
-            pytest --cov=src --cov-report=term --cov-fail-under=$COVERAGE_THRESHOLD | tee coverage.txt
+            uv run pytest --cov=src --cov-report=term --cov-fail-under=$COVERAGE_THRESHOLD | tee coverage.txt
 
       - name: Extract coverage
         id: extract-coverage
