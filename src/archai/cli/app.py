@@ -191,19 +191,22 @@ def _extract_opencode_llm(opencode_config: dict) -> tuple[str | None, str | None
     providers = opencode_config.get("provider", {})
     agents = opencode_config.get("agent", {})
 
-    # Collect all unique models from agents (skip empty and proprietary)
-    agent_models: set[str] = set()
+    # Collect unique models preserving insertion order (skip empty and proprietary)
+    agent_models: list[str] = []
+    seen: set[str] = set()
     for agent_cfg in agents.values():
         m = agent_cfg.get("model", "")
         if not m or any(m.startswith(p) for p in _OPENCODE_PROPRIETARY_PREFIXES):
             continue
-        agent_models.add(m)
+        if m not in seen:
+            seen.add(m)
+            agent_models.append(m)
 
     if not agent_models:
         return None, None, None
 
     # Pick the first usable model
-    model = next(iter(agent_models))
+    model = agent_models[0]
 
     # Extract provider prefix (e.g. "ollama" from "ollama/qwen2.5-coder:7b")
     provider_name = model.split("/")[0] if "/" in model else ""
@@ -360,8 +363,9 @@ def _detect_llm_config(
             return detected, oc_model, oc_source or "OpenCode", None
 
     # Priority 5: API key auto-detect
-    if detected:
-        return detected, _API_KEY_TO_DEFAULT_MODEL[detected[0]], "auto-detect (env)", None
+    known_keys = [k for k in detected if k in _API_KEY_TO_DEFAULT_MODEL]
+    if known_keys:
+        return detected, _API_KEY_TO_DEFAULT_MODEL[known_keys[0]], "auto-detect (env)", None
 
     # Priority 6: built-in default
     return detected, "claude-sonnet-4-20250514", "built-in default", None
