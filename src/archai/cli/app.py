@@ -7,7 +7,9 @@ and validating changes.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+from pathlib import Path
 
 import typer
 
@@ -107,6 +109,69 @@ def mcp():
     from archai.mcp_server import mcp as mcp_app
 
     mcp_app.run(transport="stdio")
+
+
+@app.command()
+def init(
+    project_dir: str = typer.Argument(".", help="Project directory to configure"),
+    model: str = typer.Option(
+        None, "--model", "-m", help="LLM model (e.g. gpt-4, claude-sonnet-4-20250514)"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Overwrite existing .opencode/mcp.json"
+    ),
+    uv: bool = typer.Option(
+        False, "--uv", help="Use 'uv run archai mcp' instead of 'archai mcp' directly"
+    ),
+):
+    """Initialize archai in a project for OpenCode MCP integration.
+
+    Creates .opencode.json with the MCP server configuration so OpenCode
+    can discover and call archai's architecture tools in this project.
+    """
+    project_path = Path(project_dir).resolve()
+    config_file = project_path / ".opencode.json"
+
+    # Read existing config or start fresh
+    existing = {}
+    if config_file.exists():
+        try:
+            existing = json.loads(config_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+
+    if config_file.exists() and not force:
+        typer.echo(
+            typer.style(
+                "⚠ .opencode.json already exists. Use --force to overwrite.",
+                fg="yellow",
+            )
+        )
+        raise typer.Exit(code=0)
+
+    command = ["uv", "run", "archai", "mcp"] if uv else ["archai", "mcp"]
+    existing.setdefault("mcp", {})["archai"] = {
+        "type": "local",
+        "command": command,
+        "enabled": True,
+    }
+
+    config_file.write_text(json.dumps(existing, indent=2) + "\n")
+
+    typer.echo(typer.style("✓ Configured archai MCP server in .opencode.json", fg="green"))
+
+    if model:
+        typer.echo(
+            typer.style(
+                f"ℹ Add ARCHAI_LLM_MODEL={model} to your .env file",
+                fg="blue",
+            )
+        )
+
+    typer.echo("")
+    typer.echo("Next steps:")
+    typer.echo("  1. Set your LLM provider environment variables in .env")
+    typer.echo("  2. Open this directory in OpenCode")
 
 
 if __name__ == "__main__":

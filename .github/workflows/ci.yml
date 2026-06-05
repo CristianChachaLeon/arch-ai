@@ -21,14 +21,17 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install uv
+        run: pip install uv
+
       - name: Install dependencies
-        run: pip install -e ".[dev,mcp]"
+        run: uv sync --extra dev
 
       - name: Run tests and coverage
         id: test-coverage
         run: |
             set -o pipefail
-            pytest --cov=src --cov-report=term --cov-fail-under=$COVERAGE_THRESHOLD | tee coverage.txt
+            uv run pytest --cov=src --cov-report=term --cov-fail-under=$COVERAGE_THRESHOLD | tee coverage.txt
 
       - name: Extract coverage
         id: extract-coverage

@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+
+from dotenv import load_dotenv
 
 from mcp.server.fastmcp import FastMCP
 
@@ -20,6 +23,8 @@ from archai.models import ChangeItem
 from archai.inference.llm import LiteLLMProvider
 from archai.middleware import ArchaiMiddleware
 from archai.orchestrator import ArchaiOrchestrator
+
+load_dotenv()
 
 # --- Singletons (mirrors http/main.py) ---
 LLM_MODEL = os.environ.get("ARCHAI_LLM_MODEL")
@@ -30,6 +35,14 @@ llm_provider = (
     if LLM_MODEL
     else None
 )
+if not LLM_MODEL:
+    print(
+        "[WARNING] ARCHAI_LLM_MODEL is not set. Semantic labeling and constraint "
+        "inference will be disabled.\n"
+        "Set it in .env file: ARCHAI_LLM_MODEL=claude-sonnet-4-20250514",
+        file=sys.stderr,
+        flush=True,
+    )
 middleware = ArchaiMiddleware(llm_provider=llm_provider)
 orchestrator = ArchaiOrchestrator(middleware)
 

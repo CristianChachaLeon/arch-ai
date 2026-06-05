@@ -1,20 +1,23 @@
 [project]
-name = "archai"
+name = "archai-mcp"
 version = "0.1.0"
 description = "Cognitive Middleware for Architecture-Aware AI Coding Agents"
-readme = "README.md"
+readme = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.11"
 authors = [
     {name = "Cristian Chacha", email = "cristianchachaleon@gmail.com"}
 ]
-license = {text = "MIT"}
-keywords = ["ai", "coding-agent", "architecture", "middleware"]
+license = "MIT"
+keywords = ["ai", "coding-agent", "architecture", "middleware", "mcp", "opencode", "cli"]
 classifiers = [
-    "Development Status :: 1 - Pre-Alpha",
+    "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 
 dependencies = [
@@ -26,12 +29,16 @@ dependencies = [
     "tree-sitter>=0.20.0",
     "networkx>=3.0.0",
     "litellm>=1.0.0",
-]
-
-[project.optional-dependencies]
-mcp = [
     "mcp>=1.23.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/CristianChachaLeon/arch-ai"
+Repository = "https://github.com/CristianChachaLeon/arch-ai"
+Documentation = "https://github.com/CristianChachaLeon/arch-ai#readme"
+Issues = "https://github.com/CristianChachaLeon/arch-ai/issues"
+
+[project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",

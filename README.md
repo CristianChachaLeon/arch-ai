@@ -1,10 +1,28 @@
-# ArchAI
+# archai-mcp
+
+[![PyPI Version](https://img.shields.io/pypi/v/archai-mcp)](https://pypi.org/project/archai-mcp/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/archai-mcp)](https://pypi.org/project/archai-mcp/)
+[![License](https://img.shields.io/pypi/l/archai-mcp)](https://github.com/CristianChachaLeon/arch-ai/blob/main/LICENSE)
 
 Cognitive Middleware for Architecture-Aware AI Coding Agents.
 
 ## Overview
 
 ArchAI is a middleware layer that governs how AI coding agents perceive and reason about software systems. It provides architecture-aware context to agents, reducing context pollution and architectural drift.
+
+## Installation
+
+```bash
+# Install from PyPI
+pip install archai-mcp
+
+# Or install with uv
+uv tool install archai-mcp
+```
+
+After installation, the `archai` CLI is available globally.
+
+For MCP integration, add `uvx archai-mcp mcp` to your `.opencode/mcp.json` (see [MCP Integration](#mcp-integration-agents)).
 
 ## Quick Start
 
@@ -65,8 +83,9 @@ ArchAI exposes 3 MCP tools for AI agents:
 {
   "mcpServers": {
     "archai": {
-      "command": "uv",
-      "args": ["run", "archai", "mcp"]
+      "command": "uvx",
+      "args": ["archai-mcp", "mcp"],
+      "description": "Architecture-aware context for AI coding agents"
     }
   }
 }
