@@ -112,12 +112,14 @@ def mcp():
 
 
 # --- LLM auto-detection ---
-# Priority: --model flag > ARCHAI_LLM_MODEL env > OpenCode config > API key env vars > default
+# Priority: --model flag > interactive > ARCHAI_LLM_MODEL env > OpenCode config > API key env vars > default
 
 _OPENCODE_CONFIG_PATHS = (
     Path.home() / ".config" / "opencode" / "opencode.json",
     Path.home() / ".opencode" / "opencode.json",
 )
+
+_OPENCODE_AUTH_PATH = Path.home() / ".local" / "share" / "opencode" / "auth.json"
 
 _OPENCODE_PROPRIETARY_PREFIXES = ("opencode/",)
 
@@ -130,19 +132,47 @@ _API_KEY_TO_DEFAULT_MODEL = {
     "GROQ_API_KEY": "llama-3.3-70b-versatile",
 }
 
-_OPENCODE_PROVIDER_TO_API_BASE = {
-    "ollama": {"ollama": True},  # litellm handles ollama natively
+# Providers detectable from OpenCode's auth.json → litellm config
+_AUTH_PROVIDER_CONFIG: dict[str, dict] = {
+    "groq": {
+        "env_key": "GROQ_API_KEY",
+        "model": "groq/llama-3.3-70b-versatile",
+        "label": "Groq — llama-3.3-70b-versatile",
+    },
+    "google": {
+        "env_key": "GEMINI_API_KEY",
+        "model": "gemini-2.0-flash",
+        "label": "Google — gemini-2.0-flash",
+    },
+    "cerebras": {
+        "env_key": "CEREBRAS_API_KEY",
+        "model": "cerebras/llama-3.3-70b",
+        "label": "Cerebras — llama-3.3-70b",
+    },
+    "nvidia": {
+        "env_key": "NVIDIA_API_KEY",
+        "model": "nvidia/llama-3.1-nemotron-70b-instruct",
+        "label": "NVIDIA — llama-3.1-nemotron-70b",
+    },
 }
+
+
+def _read_json(path: Path) -> dict | None:
+    """Read and parse a JSON file, returning None on failure."""
+    try:
+        if path.exists():
+            return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
 
 
 def _read_opencode_config() -> dict | None:
     """Read OpenCode's config file from standard paths."""
     for path in _OPENCODE_CONFIG_PATHS:
-        if path.exists():
-            try:
-                return json.loads(path.read_text())
-            except (json.JSONDecodeError, OSError):
-                continue
+        result = _read_json(path)
+        if result:
+            return result
     return None
 
 
@@ -180,7 +210,67 @@ def _extract_opencode_llm(opencode_config: dict) -> tuple[str | None, str | None
     return model, None, f"OpenCode (provider: {provider_name})" if provider_name else None
 
 
-def _detect_llm_config(override_model: str | None) -> tuple[list[str], str, str | None]:
+def _discover_providers() -> list[dict]:
+    """Discover all available LLM providers from all sources.
+
+    Returns a list of dicts with keys: name, model, api_base, env_key, label, source.
+    """
+    providers: list[dict] = []
+
+    # 1. From OpenCode config (Ollama etc.)
+    opencode_config = _read_opencode_config()
+    if opencode_config:
+        oc_cfg = opencode_config.get("provider", {})
+        agents = opencode_config.get("agent", {})
+        seen_models: set[str] = set()
+        for agent_cfg in agents.values():
+            m = agent_cfg.get("model", "")
+            if not m or any(m.startswith(p) for p in _OPENCODE_PROPRIETARY_PREFIXES):
+                continue
+            if m in seen_models:
+                continue
+            seen_models.add(m)
+            provider_name = m.split("/")[0] if "/" in m else ""
+            prov_cfg = oc_cfg.get(provider_name, {})
+            api_base = prov_cfg.get("options", {}).get("baseURL") if prov_cfg else None
+            providers.append(
+                {
+                    "name": provider_name or "unknown",
+                    "model": m,
+                    "api_base": api_base,
+                    "env_key": "",
+                    "label": f"{m} ({api_base or 'default'})" if api_base else m,
+                    "source": "OpenCode config",
+                }
+            )
+
+    # 2. From OpenCode auth.json (Groq, Google, etc.)
+    auth_config = _read_json(_OPENCODE_AUTH_PATH)
+    if auth_config:
+        for prov_name, prov_data in auth_config.items():
+            if prov_name == "opencode-go":
+                continue  # proprietary, skip
+            cfg = _AUTH_PROVIDER_CONFIG.get(prov_name)
+            if not cfg:
+                continue
+            providers.append(
+                {
+                    "name": prov_name,
+                    "model": cfg["model"],
+                    "api_base": None,
+                    "env_key": cfg["env_key"],
+                    "label": cfg["label"],
+                    "source": "OpenCode auth",
+                }
+            )
+
+    return providers
+
+
+def _detect_llm_config(
+    override_model: str | None,
+    interactive: bool = False,
+) -> tuple[list[str], str, str | None]:
     """Detect LLM configuration from all available sources.
 
     Returns (detected_keys, resolved_model, source_info).
@@ -192,12 +282,54 @@ def _detect_llm_config(override_model: str | None) -> tuple[list[str], str, str 
     if override_model:
         return detected, override_model, "--model flag"
 
-    # Priority 2: ARCHAI_LLM_MODEL env var
+    # Priority 2: interactive mode
+    if interactive:
+        available = _discover_providers()
+        if not available:
+            typer.echo(typer.style("⚠ No providers detected.", fg="yellow"))
+            # Fall through to manual input
+            model = typer.prompt(
+                "  Enter model name (e.g. gpt-4o)", default="claude-sonnet-4-20250514"
+            )
+            return detected, model, "manual"
+
+        typer.echo("")
+        typer.echo(typer.style("🔍 Select an LLM provider for archai:", fg="cyan"))
+        typer.echo("")
+        for i, p in enumerate(available, 1):
+            typer.echo(f"  {i}) {p['label']}")
+        typer.echo(f"  {len(available) + 1}) Custom — enter model manually")
+        typer.echo("")
+
+        choice = typer.prompt("  Choose", default="1")
+        try:
+            idx = int(choice) - 1
+            if idx < 0 or idx >= len(available):
+                raise ValueError
+            picked = available[idx]
+        except (ValueError, IndexError):
+            model = typer.prompt("  Enter model name", default="claude-sonnet-4-20250514")
+            return detected, model, "manual"
+
+        # Apply the selection
+        if picked["api_base"]:
+            os.environ["ARCHAI_LLM_API_BASE"] = picked["api_base"]
+        if picked["env_key"]:
+            # If the key is in auth.json, set it as env var for passthrough
+            auth_config = _read_json(_OPENCODE_AUTH_PATH)
+            if auth_config and picked["name"] in auth_config:
+                key_value = auth_config[picked["name"]].get("key", "")
+                if key_value:
+                    os.environ[picked["env_key"]] = key_value
+
+        return detected, picked["model"], picked["source"]
+
+    # Priority 3: ARCHAI_LLM_MODEL env var
     env_model = os.environ.get("ARCHAI_LLM_MODEL")
     if env_model:
         return detected, env_model, "ARCHAI_LLM_MODEL env"
 
-    # Priority 3: OpenCode config
+    # Priority 4: OpenCode config
     opencode_config = _read_opencode_config()
     if opencode_config:
         oc_model, oc_api_base, oc_source = _extract_opencode_llm(opencode_config)
@@ -206,11 +338,11 @@ def _detect_llm_config(override_model: str | None) -> tuple[list[str], str, str 
                 os.environ["ARCHAI_LLM_API_BASE"] = oc_api_base
             return detected, oc_model, oc_source or "OpenCode"
 
-    # Priority 4: API key auto-detect
+    # Priority 5: API key auto-detect
     if detected:
         return detected, _API_KEY_TO_DEFAULT_MODEL[detected[0]], "auto-detect (env)"
 
-    # Priority 5: built-in default
+    # Priority 6: built-in default
     return detected, "claude-sonnet-4-20250514", "built-in default"
 
 
@@ -219,6 +351,9 @@ def init(
     project_dir: str = typer.Argument(".", help="Project directory to configure"),
     model: str = typer.Option(
         None, "--model", "-m", help="LLM model (e.g. gpt-4, claude-sonnet-4-20250514)"
+    ),
+    interactive: bool = typer.Option(
+        False, "--interactive", "-i", help="Interactively select LLM provider"
     ),
     force: bool = typer.Option(
         False, "--force", "-f", help="Overwrite existing .opencode/mcp.json"
@@ -256,7 +391,7 @@ def init(
         raise typer.Exit(code=0)
 
     # Detect LLM and build environment passthrough
-    detected_keys, resolved_model, source = _detect_llm_config(model)
+    detected_keys, resolved_model, source = _detect_llm_config(model, interactive=interactive)
     env_passthrough: dict[str, str] = {}
     for key in _API_KEY_ENV_VARS:
         env_passthrough[key] = "{env:" + key + "}"
