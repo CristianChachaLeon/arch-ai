@@ -154,6 +154,12 @@ _AUTH_PROVIDER_CONFIG: dict[str, dict] = {
         "model": "nvidia/llama-3.1-nemotron-70b-instruct",
         "label": "NVIDIA — llama-3.1-nemotron-70b",
     },
+    "opencode-go": {
+        "env_key": "OPENAI_API_KEY",
+        "model": "deepseek-v4-flash",
+        "api_base": "https://opencode.ai/zen/go/v1",
+        "label": "OpenCode Go — deepseek-v4-flash (y otros modelos Go)",
+    },
 }
 
 
@@ -244,54 +250,58 @@ def _discover_providers() -> list[dict]:
                 }
             )
 
-    # 2. From OpenCode auth.json (Groq, Google, etc.)
+    # 2. From OpenCode auth.json (Groq, Google, OpenCode Go, etc.)
     auth_config = _read_json(_OPENCODE_AUTH_PATH)
     if auth_config:
         for prov_name, prov_data in auth_config.items():
-            if prov_name == "opencode-go":
-                continue  # proprietary, skip
             cfg = _AUTH_PROVIDER_CONFIG.get(prov_name)
-            if not cfg:
-                continue
-            providers.append(
-                {
-                    "name": prov_name,
-                    "model": cfg["model"],
-                    "api_base": None,
-                    "env_key": cfg["env_key"],
-                    "label": cfg["label"],
-                    "source": "OpenCode auth",
-                }
-            )
+            if cfg:
+                providers.append(
+                    {
+                        "name": prov_name,
+                        "model": cfg.get("model", "gpt-4o"),
+                        "api_base": cfg.get("api_base"),
+                        "env_key": cfg.get("env_key", ""),
+                        "label": cfg.get("label", prov_name),
+                        "source": "OpenCode auth",
+                    }
+                )
 
     return providers
+
+
+# All env keys we can pass through for LLM providers
+_ALL_LLM_ENV_KEYS = (
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "CEREBRAS_API_KEY",
+    "NVIDIA_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "MISTRAL_API_KEY",
+    "TOGETHER_API_KEY",
+)
 
 
 def _detect_llm_config(
     override_model: str | None,
     interactive: bool = False,
-) -> tuple[list[str], str, str | None]:
+) -> tuple[list[str], str, str | None, str | None]:
     """Detect LLM configuration from all available sources.
 
-    Returns (detected_keys, resolved_model, source_info).
-    Source info is a human-readable string like "OpenCode (ollama)".
+    Returns (detected_keys, resolved_model, source_info, api_key_env).
+    api_key_env is the env var name for the chosen key (e.g. "GROQ_API_KEY").
     """
-    detected = [k for k in _API_KEY_ENV_VARS if os.environ.get(k)]
+    detected = [k for k in _ALL_LLM_ENV_KEYS if os.environ.get(k)]
 
     # Priority 1: explicit --model flag
     if override_model:
-        return detected, override_model, "--model flag"
+        return detected, override_model, "--model flag", None
 
     # Priority 2: interactive mode
     if interactive:
         available = _discover_providers()
-        if not available:
-            typer.echo(typer.style("⚠ No providers detected.", fg="yellow"))
-            # Fall through to manual input
-            model = typer.prompt(
-                "  Enter model name (e.g. gpt-4o)", default="claude-sonnet-4-20250514"
-            )
-            return detected, model, "manual"
 
         typer.echo("")
         typer.echo(typer.style("🔍 Select an LLM provider for archai:", fg="cyan"))
@@ -308,13 +318,26 @@ def _detect_llm_config(
                 raise ValueError
             picked = available[idx]
         except (ValueError, IndexError):
-            model = typer.prompt("  Enter model name", default="claude-sonnet-4-20250514")
-            return detected, model, "manual"
+            # Custom — ask for model, API key, and base URL
+            model = typer.prompt("  Model name", default="gpt-4o")
+            key_var = typer.prompt(
+                "  API key env var (e.g. OPENAI_API_KEY, DEEPSEEK_API_KEY)",
+                default="",
+            )
+            api_base = typer.prompt("  API base URL (optional, press Enter to skip)", default="")
+            if key_var:
+                os.environ[key_var] = typer.prompt(f"  Value for {key_var}", default="")
+            if api_base:
+                os.environ["ARCHAI_LLM_API_BASE"] = api_base
+            detected = [k for k in _ALL_LLM_ENV_KEYS if os.environ.get(k)]
+            return detected, model, "manual", key_var or None
 
         # Apply the selection
         if picked["api_base"]:
             os.environ["ARCHAI_LLM_API_BASE"] = picked["api_base"]
+        key_env = None
         if picked["env_key"]:
+            key_env = picked["env_key"]
             # If the key is in auth.json, set it as env var for passthrough
             auth_config = _read_json(_OPENCODE_AUTH_PATH)
             if auth_config and picked["name"] in auth_config:
@@ -322,12 +345,13 @@ def _detect_llm_config(
                 if key_value:
                     os.environ[picked["env_key"]] = key_value
 
-        return detected, picked["model"], picked["source"]
+        detected = [k for k in _ALL_LLM_ENV_KEYS if os.environ.get(k)]
+        return detected, picked["model"], picked["source"], key_env
 
     # Priority 3: ARCHAI_LLM_MODEL env var
     env_model = os.environ.get("ARCHAI_LLM_MODEL")
     if env_model:
-        return detected, env_model, "ARCHAI_LLM_MODEL env"
+        return detected, env_model, "ARCHAI_LLM_MODEL env", None
 
     # Priority 4: OpenCode config
     opencode_config = _read_opencode_config()
@@ -336,14 +360,14 @@ def _detect_llm_config(
         if oc_model:
             if oc_api_base:
                 os.environ["ARCHAI_LLM_API_BASE"] = oc_api_base
-            return detected, oc_model, oc_source or "OpenCode"
+            return detected, oc_model, oc_source or "OpenCode", None
 
     # Priority 5: API key auto-detect
     if detected:
-        return detected, _API_KEY_TO_DEFAULT_MODEL[detected[0]], "auto-detect (env)"
+        return detected, _API_KEY_TO_DEFAULT_MODEL[detected[0]], "auto-detect (env)", None
 
     # Priority 6: built-in default
-    return detected, "claude-sonnet-4-20250514", "built-in default"
+    return detected, "claude-sonnet-4-20250514", "built-in default", None
 
 
 @app.command()
@@ -391,9 +415,11 @@ def init(
         raise typer.Exit(code=0)
 
     # Detect LLM and build environment passthrough
-    detected_keys, resolved_model, source = _detect_llm_config(model, interactive=interactive)
+    detected_keys, resolved_model, source, api_key_env = _detect_llm_config(
+        model, interactive=interactive
+    )
     env_passthrough: dict[str, str] = {}
-    for key in _API_KEY_ENV_VARS:
+    for key in _ALL_LLM_ENV_KEYS:
         env_passthrough[key] = "{env:" + key + "}"
     env_passthrough["ARCHAI_LLM_MODEL"] = "{env:ARCHAI_LLM_MODEL}"
     # If we detected an API base from OpenCode, pass it through too
@@ -417,6 +443,13 @@ def init(
     if source and "OpenCode" in source:
         typer.echo(typer.style(f"🔑 Using LLM from {source}", fg="cyan"))
         typer.echo(typer.style("   Model:", fg="cyan") + f" {resolved_model}")
+        if api_base:
+            typer.echo(typer.style("   API Base:", fg="cyan") + f" {api_base}")
+    elif source == "manual":
+        typer.echo(typer.style("🔑 Manual LLM configuration", fg="cyan"))
+        typer.echo(typer.style("   Model:", fg="cyan") + f" {resolved_model}")
+        if api_key_env:
+            typer.echo(typer.style("   API Key:", fg="cyan") + f" {api_key_env} ✓")
         if api_base:
             typer.echo(typer.style("   API Base:", fg="cyan") + f" {api_base}")
     elif detected_keys:
