@@ -359,6 +359,10 @@ class TestInit:
             assert result.exit_code == 0
             assert "ANTHROPIC_API_KEY" in result.output
             assert "claude-sonnet-4-20250514" in result.output
+        config = json.loads((tmp_path / ".opencode.json").read_text())
+        env = config["mcp"]["archai"]["environment"]
+        assert env["ARCHAI_LLM_MODEL"] == "{env:ARCHAI_LLM_MODEL}"
+        assert "ARCHAI_LLM_API_KEY" in env
 
     def test_auto_detect_openai_key(self, tmp_path):
         with (
@@ -369,6 +373,10 @@ class TestInit:
             assert result.exit_code == 0
             assert "OPENAI_API_KEY" in result.output
             assert "gpt-4o" in result.output
+        config = json.loads((tmp_path / ".opencode.json").read_text())
+        env = config["mcp"]["archai"]["environment"]
+        assert env["ARCHAI_LLM_MODEL"] == "{env:ARCHAI_LLM_MODEL}"
+        assert "ARCHAI_LLM_API_KEY" in env
 
     def test_explicit_model_overrides_default(self, tmp_path):
         with (
@@ -378,6 +386,10 @@ class TestInit:
             result = runner.invoke(app, ["init", str(tmp_path), "--model", "my-custom-model"])
             assert result.exit_code == 0
             assert "my-custom-model" in result.output
+        config = json.loads((tmp_path / ".opencode.json").read_text())
+        env = config["mcp"]["archai"]["environment"]
+        assert env["ARCHAI_LLM_MODEL"] == "{env:ARCHAI_LLM_MODEL}"
+        assert "ARCHAI_LLM_API_KEY" in env
 
     def test_custom_provider_flow(self, tmp_path):
         with (

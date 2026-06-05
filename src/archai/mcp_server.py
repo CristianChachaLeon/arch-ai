@@ -44,7 +44,13 @@ llm_provider = LiteLLMProvider(model=LLM_MODEL, api_base=LLM_API_BASE, api_key=L
 
 _detected = [
     k
-    for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY")
+    for k in (
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "GROQ_API_KEY",
+        "ARCHAI_LLM_API_KEY",
+    )
     if os.environ.get(k)
 ]
 if _detected:
