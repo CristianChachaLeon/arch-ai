@@ -160,18 +160,34 @@ def init(
 
     typer.echo(typer.style("✓ Configured archai MCP server in .opencode.json", fg="green"))
 
-    if model:
+    # Detect LLM config from environment
+    detected_keys = [
+        k
+        for k in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY")
+        if os.environ.get(k)
+    ]
+    llm_model = model or os.environ.get("ARCHAI_LLM_MODEL") or "claude-sonnet-4-20250514 (default)"
+
+    if detected_keys:
+        typer.echo("")
+        typer.echo(typer.style("🔑 LLM detected:", fg="cyan") + f" {', '.join(detected_keys)}")
+        typer.echo(typer.style("   Model:", fg="cyan") + f" {llm_model}")
+    else:
+        typer.echo("")
         typer.echo(
             typer.style(
-                f"ℹ Add ARCHAI_LLM_MODEL={model} to your .env file",
-                fg="blue",
+                "⚠ No API keys detected. Semantic features will be degraded.\n"
+                "  Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or similar in your .env file.",
+                fg="yellow",
             )
         )
+        if model:
+            typer.echo(
+                typer.style(f"   Model: {model} (set — don't forget the API key!)", fg="cyan")
+            )
 
     typer.echo("")
-    typer.echo("Next steps:")
-    typer.echo("  1. Set your LLM provider environment variables in .env")
-    typer.echo("  2. Open this directory in OpenCode")
+    typer.echo(typer.style("✓ archai is ready! Open this directory in OpenCode.", fg="green"))
 
 
 if __name__ == "__main__":

@@ -263,8 +263,8 @@ class TestMcpServerEnvVars:
                 model="gpt-4", api_base="https://custom", api_key="sk-test"
             )
 
-    async def test_no_env_no_llm_provider(self):
-        """When ARCHAI_LLM_MODEL is not set, no LLM provider is created."""
+    async def test_no_env_still_creates_llm_provider(self):
+        """When no ARCHAI_LLM_MODEL is set, provider is still created with defaults."""
         sys.modules.pop("archai.mcp_server", None)
         with (
             patch.dict(os.environ, {}, clear=True),
@@ -282,10 +282,9 @@ class TestMcpServerEnvVars:
             import archai.mcp_server as m
 
             await m.get_architecture_context("query", "/fake/path")
-            assert mock_mw_cls.call_count == 1
+            llm_cls.assert_called_once_with(model=None, api_base=None, api_key=None)
             mw_call_kwargs = mock_mw_cls.call_args[1]
-            assert mw_call_kwargs.get("llm_provider") is None
-            llm_cls.assert_not_called()
+            assert mw_call_kwargs.get("llm_provider") is llm_cls.return_value
 
 
 class TestValidateRepoPathGuard:
