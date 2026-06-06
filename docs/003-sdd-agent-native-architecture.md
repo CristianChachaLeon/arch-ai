@@ -6,7 +6,7 @@
 |------|--------|
 | **Project** | ArchAI |
 | **Version** | 0.3.0 |
-| **Status** | Proposal |
+| **Status** | Accepted |
 | **Date** | 2026-06-06 |
 | **Supersedes** | Sections of 002-sdd related to CLI commands and MCP/LLM integration |
 | **Removes** | `archai start`, `archai ask` CLI commands entirely |
@@ -61,6 +61,7 @@ OpenCode, on the other hand, KNOWS the context: *"the user asked me to add a log
 #### 1.1.3 Configuration Friction
 
 Currently the user needs:
+
 1. `ARCHAI_LLM_MODEL` or API keys configured
 2. archai to have its own LLM access
 3. Two LLM systems to configure (OpenCode + archai)
@@ -95,6 +96,7 @@ OpenCode Agent                    archai MCP
 6. **Expose** everything as structured data via MCP
 
 **OpenCode (its agent + LLM) handles the rest:**
+
 1. Interpret clusters and name them semantically
 2. Infer architecture constraints
 3. Validate changes against those constraints
@@ -227,6 +229,7 @@ OpenCode Agent:
 ### 3.1 Tool: `get_architecture_context`
 
 **Before (v0.2.0):**
+
 ```json
 {
   "focus": "Authentication Module",
@@ -239,6 +242,7 @@ OpenCode Agent:
 ```
 
 **After (v0.3.0):**
+
 ```json
 {
   "focus_cluster": "cluster_2",
@@ -271,12 +275,14 @@ OpenCode Agent:
 ```
 
 **Removed from response:**
+
 - `focus` (semantic string) → replaced by `focus_cluster` + `focus_files`
 - `constraints` → OpenCode infers from the data
 - `relevant_files` → replaced by `focus_files` + `test_files`
 - `subgraph` → implicit in `focus_files` + `test_files`
 
 **Rationale**:
+
 - The agent needs to see ALL clusters to understand the full landscape
 - Cluster edges reveal the layered architecture
 - Per-file dependencies enable granular validation
@@ -285,6 +291,7 @@ OpenCode Agent:
 ### 3.2 Tool: `validate_code_change`
 
 **Before (v0.2.0):**
+
 ```json
 {
   "valid": true,
@@ -295,6 +302,7 @@ OpenCode Agent:
 (Always empty without LLM — no constraints to validate against)
 
 **After (v0.3.0):**
+
 ```json
 {
   "file_cluster": "cluster_2",
@@ -586,6 +594,7 @@ dependencies = [
 ```
 
 `litellm` stays as a core dependency because:
+
 - It's used by anyone importing the core library directly
 - Removing it would break existing imports without real benefit
 - It doesn't affect the MCP server path
