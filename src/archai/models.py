@@ -10,6 +10,39 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
+class ClusterEdge(BaseModel):
+    """A dependency edge between two clusters."""
+
+    from_cluster: str
+    to_cluster: str
+    files: list[str] = Field(default_factory=list)
+    """Specific files causing the cross-cluster dependency."""
+
+
+class StructuralContext(BaseModel):
+    """Pure structural response for MCP (no LLM)."""
+
+    focus_cluster: str
+    focus_files: list[str]
+    focus_reasoning: str
+    all_clusters: dict[str, list[str]]
+    cluster_edges: list[ClusterEdge]
+    file_dependencies: dict[str, list[str]]
+    test_files: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class StructuralChangeValidation(BaseModel):
+    """Structural validation response — the agent decides validity."""
+
+    file_cluster: str
+    cluster_files: list[str]
+    cluster_dependencies: dict[str, list[str]]
+    file_dependencies: dict[str, list[str]]
+    new_imports_in_patch: list[str] = Field(default_factory=list)
+    patch_summary: dict[str, Any] = Field(default_factory=dict)
+
+
 class SubsystemConstraints(BaseModel):
     """Constraints that apply to a subsystem."""
 

@@ -8,11 +8,15 @@ import asyncio
 import re
 from collections import deque
 
+import networkx
+
 from archai.models import (
     BlastRadiusResponse,
     ChangeItem,
+    ClusterEdge,
     ContextPacket,
     FileMetadata,
+    StructuralContext,
     SubsystemConstraints,
     ValidateChangeResponse,
     Violation,
@@ -144,6 +148,92 @@ def _find_related_test_files(
                     break
 
     return sorted(set(related))
+
+
+def get_cluster_edges(
+    graph: "networkx.DiGraph",
+    clusters: dict[str, list[str]],
+) -> list[ClusterEdge]:
+    """Compute dependency edges between clusters.
+
+    For each cluster, finds all imports to files in other clusters.
+    Returns edges representing cross-cluster dependencies.
+
+    Args:
+        graph: NetworkX DiGraph where A→B means "A imports B"
+        clusters: dict mapping cluster_id -> list of file paths
+
+    Returns:
+        List of ClusterEdge, one per (from_cluster, to_cluster) pair
+    """
+    # Build reverse file -> cluster mapping
+    file_to_cluster: dict[str, str] = {}
+    for cid, files in clusters.items():
+        for f in files:
+            file_to_cluster[f] = cid
+
+    # Track edges we've already seen to avoid duplicates
+    seen: set[tuple[str, str]] = set()
+    edges: list[ClusterEdge] = []
+
+    for from_cluster, files in clusters.items():
+        for f in files:
+            if f not in graph:
+                continue
+            # For each file, check what it imports (successors in graph)
+            for imported in graph.successors(f):
+                imported_cluster = file_to_cluster.get(imported)
+                if imported_cluster and imported_cluster != from_cluster:
+                    key = (from_cluster, imported_cluster)
+                    if key not in seen:
+                        seen.add(key)
+                        edges.append(
+                            ClusterEdge(
+                                from_cluster=from_cluster,
+                                to_cluster=imported_cluster,
+                                files=[f],
+                            )
+                        )
+                    else:
+                        # Add file to existing edge
+                        for edge in edges:
+                            if (
+                                edge.from_cluster == from_cluster
+                                and edge.to_cluster == imported_cluster
+                            ):
+                                if f not in edge.files:
+                                    edge.files.append(f)
+                                break
+
+    return edges
+
+
+def get_file_dependencies(
+    graph: "networkx.DiGraph",
+    files: list[str] | None = None,
+) -> dict[str, list[str]]:
+    """Return per-file import lists.
+
+    Maps each file to all files it imports (with resolved paths).
+    Optionally filters to a specific file list.
+
+    Args:
+        graph: NetworkX DiGraph where A→B means "A imports B"
+        files: Optional list of files to filter. If None, returns all.
+
+    Returns:
+        Dict mapping file path to list of imported file paths
+    """
+    result: dict[str, list[str]] = {}
+    nodes = files if files is not None else list(graph.nodes())
+
+    for f in nodes:
+        if f in graph:
+            deps = sorted(graph.successors(f))
+            if deps:
+                result[f] = deps
+
+    return result
 
 
 class ArchaiOrchestrator:
@@ -397,6 +487,55 @@ class ArchaiOrchestrator:
             constraints=constraints,
             subgraph=all_focus_files,
             relevant_files=relevant_files,
+            metadata=metadata,
+        )
+
+    async def get_structural_context(
+        self, query: str, repo_path: str, force: bool = False
+    ) -> StructuralContext:
+        """Process a repo and query, return rich structural data without LLM.
+
+        Returns clusters with file lists, inter-cluster dependency edges,
+        per-file dependencies, and test files. No LLM labeling involved.
+
+        Args:
+            query: User query to resolve focus for
+            repo_path: Path to the repository
+            force: If True, bypass cache and re-process the repo
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path, force)
+
+        focus, focus_reasoning = resolve_focus(
+            query,
+            pipeline_result.clusters,
+            cluster_descriptions=None,  # No LLM labels
+        )
+
+        subgraph = pipeline_result.clusters.get(focus, [])
+
+        # Find related test files
+        test_files = _find_related_test_files(subgraph, pipeline_result.clusters)
+        test_files = [tf for tf in test_files if tf not in subgraph]
+
+        # Compute cluster edges
+        edges = get_cluster_edges(pipeline_result.graph.graph, pipeline_result.clusters)
+
+        # Compute file dependencies for focus files only
+        file_deps = get_file_dependencies(pipeline_result.graph.graph, subgraph)
+
+        metadata = {
+            "source": "orchestrator",
+            "cluster_count": len(pipeline_result.clusters),
+        }
+
+        return StructuralContext(
+            focus_cluster=focus,
+            focus_files=subgraph,
+            focus_reasoning=focus_reasoning,
+            all_clusters=pipeline_result.clusters,
+            cluster_edges=edges,
+            file_dependencies=file_deps,
+            test_files=test_files,
             metadata=metadata,
         )
 
