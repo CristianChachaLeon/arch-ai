@@ -6,11 +6,37 @@ Provides commands for MCP server integration and project initialization.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import typer
 
+# Suppress noisy litellm pre-load warnings (archai doesn't use litellm directly)
+os.environ.setdefault("LITELLM_LOG", "ERROR")
+
 app = typer.Typer(name="archai", help="Architecture-aware AI coding assistant")
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        from importlib.metadata import version
+
+        typer.echo(f"archai-mcp v{version('archai-mcp')}")
+        raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show version and exit",
+        callback=_version_callback,
+        is_eager=True,
+    ),
+) -> None:
+    """Architecture-aware AI coding assistant."""
+    pass
 
 
 @app.command()
