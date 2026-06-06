@@ -1,6 +1,7 @@
 """Tests for the ArchAI CLI Typer app."""
 
 import json
+import re
 from unittest import mock
 
 from typer.testing import CliRunner
@@ -8,6 +9,15 @@ from typer.testing import CliRunner
 from archai.cli.app import app
 
 runner = CliRunner()
+
+
+class TestVersion:
+    """Tests for the ``--version`` flag."""
+
+    def test_version_output_format(self):
+        result = runner.invoke(app, ["--version"])
+        assert result.exit_code == 0
+        assert re.match(r"archai-mcp v\d+\.\d+\.\d+", result.output.strip())
 
 
 class TestCliHelp:
