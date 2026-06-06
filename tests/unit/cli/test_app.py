@@ -1,21 +1,13 @@
 """Tests for the ArchAI CLI Typer app."""
 
 import json
-import os
-import re
 from unittest import mock
 
-import pytest
 from typer.testing import CliRunner
 
-from archai.cli.app import _ALL_LLM_ENV_KEYS, app
+from archai.cli.app import app
 
 runner = CliRunner()
-
-
-def _strip_ansi(text: str) -> str:
-    """Remove ANSI escape sequences from text."""
-    return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
 class TestCliHelp:
@@ -24,248 +16,20 @@ class TestCliHelp:
     def test_help_shows_commands(self):
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "start" in result.output
-        assert "ask" in result.output
         assert "mcp" in result.output
         assert "init" in result.output
-
-    def test_start_help(self):
-        result = runner.invoke(app, ["start", "--help"])
-        assert result.exit_code == 0
-        assert "--json" in _strip_ansi(result.output)
-
-    def test_ask_help(self):
-        result = runner.invoke(app, ["ask", "--help"])
-        assert result.exit_code == 0
-        assert "QUERY" in result.output
-        assert "--json" in _strip_ansi(result.output)
+        # start and ask were removed — archai is MCP-only
+        assert "start" not in result.output
+        assert "ask" not in result.output
 
     def test_mcp_help(self):
         result = runner.invoke(app, ["mcp", "--help"])
         assert result.exit_code == 0
 
-
-class TestStartCommand:
-    """Tests for the ``start`` command."""
-
-    @pytest.fixture
-    def mock_pipeline(self):
-        """Mock the full pipeline so no real async work runs."""
-        fake_dict = {
-            "repo_path": "/fake/repo",
-            "file_count": 5,
-            "edge_count": 3,
-            "cluster_count": 2,
-            "clusters": {"c1": ["a.py", "b.py"]},
-        }
-        with (
-            mock.patch("archai.middleware.pipeline.ArchaiMiddleware") as mw_cls,
-            mock.patch("archai.cli.output.format_process_result") as fmt,
-        ):
-            mw_instance = mw_cls.return_value
-            pipeline_result = mock.MagicMock()
-            pipeline_result.to_dict.return_value = fake_dict
-            mw_instance.process = mock.AsyncMock(return_value=pipeline_result)
-            fmt.return_value = "Formatted output"
-            yield fmt, mw_cls
-
-    def test_start_with_repo_path(self, mock_pipeline):
-        result = runner.invoke(app, ["start", "/fake/repo"])
+    def test_init_help(self):
+        result = runner.invoke(app, ["init", "--help"])
         assert result.exit_code == 0
-        assert "Formatted output" in result.output
-
-    def test_start_json_output(self, mock_pipeline):
-        fmt, _ = mock_pipeline
-        fmt.return_value = json.dumps({"file_count": 5})
-        result = runner.invoke(app, ["start", "/fake/repo", "--json"])
-        assert result.exit_code == 0
-        parsed = json.loads(result.output)
-        assert parsed["file_count"] == 5
-
-    def test_start_error_handling(self, mock_pipeline):
-        _, mw_cls = mock_pipeline
-        mw_instance = mw_cls.return_value
-        mw_instance.process = mock.AsyncMock(side_effect=ValueError("boom"))
-        result = runner.invoke(app, ["start", "/fake/repo"])
-        assert result.exit_code == 1
-        assert "Error: boom" in result.output
-
-    @mock.patch.dict(os.environ, {"ARCHAI_LLM_MODEL": "gpt-4"}, clear=True)
-    def test_start_with_llm_model_env(self):
-        fake_dict = {
-            "repo_path": "/fake/repo",
-            "file_count": 3,
-            "edge_count": 1,
-            "cluster_count": 1,
-            "clusters": {},
-        }
-        with (
-            mock.patch("archai.middleware.pipeline.ArchaiMiddleware") as mw_cls,
-            mock.patch("archai.cli.output.format_process_result") as fmt,
-            mock.patch("archai.inference.llm.litellm_provider.LiteLLMProvider") as llm_cls,
-        ):
-            mw_instance = mw_cls.return_value
-            pipeline_result = mock.MagicMock()
-            pipeline_result.to_dict.return_value = fake_dict
-            mw_instance.process = mock.AsyncMock(return_value=pipeline_result)
-            fmt.return_value = "done"
-            result = runner.invoke(app, ["start", "/fake/repo"])
-            assert result.exit_code == 0
-            llm_cls.assert_called_once_with(model="gpt-4", api_base=None, api_key=None)
-
-    def test_start_without_llm_model(self):
-        fake_dict = {
-            "repo_path": "/fake/repo",
-            "file_count": 3,
-            "edge_count": 1,
-            "cluster_count": 1,
-            "clusters": {},
-        }
-        with (
-            mock.patch.dict(os.environ, {}, clear=True),
-            mock.patch("archai.middleware.pipeline.ArchaiMiddleware") as mw_cls,
-            mock.patch("archai.cli.output.format_process_result") as fmt,
-            mock.patch("archai.inference.llm.litellm_provider.LiteLLMProvider") as llm_cls,
-        ):
-            mw_instance = mw_cls.return_value
-            pipeline_result = mock.MagicMock()
-            pipeline_result.to_dict.return_value = fake_dict
-            mw_instance.process = mock.AsyncMock(return_value=pipeline_result)
-            fmt.return_value = "done"
-            result = runner.invoke(app, ["start", "/fake/repo"])
-            assert result.exit_code == 0
-            llm_cls.assert_not_called()
-
-    def test_start_empty_output_does_not_print(self, mock_pipeline):
-        fmt, _ = mock_pipeline
-        fmt.return_value = ""
-        result = runner.invoke(app, ["start", "/fake/repo"])
-        assert result.exit_code == 0
-        assert result.output.strip() == ""
-
-    def test_start_uses_detect_repo_root_when_no_path(self):
-        with (
-            mock.patch("archai.config.detect_repo_root", return_value="/detected/repo"),
-            mock.patch("archai.middleware.pipeline.ArchaiMiddleware") as mw_cls,
-            mock.patch("archai.cli.output.format_process_result") as fmt,
-        ):
-            mw_instance = mw_cls.return_value
-            pipeline_result = mock.MagicMock()
-            pipeline_result.to_dict.return_value = {
-                "repo_path": "/detected/repo",
-                "file_count": 0,
-                "edge_count": 0,
-                "cluster_count": 0,
-                "clusters": {},
-            }
-            mw_instance.process = mock.AsyncMock(return_value=pipeline_result)
-            fmt.return_value = "detected"
-            result = runner.invoke(app, ["start"])
-            assert result.exit_code == 0
-            assert "detected" in result.output
-
-
-class TestAskCommand:
-    """Tests for the ``ask`` command."""
-
-    @pytest.fixture
-    def mock_orchestrator(self):
-        fake_packet = {
-            "focus": "API Layer",
-            "focus_reasoning": "Query about HTTP handlers",
-            "constraints": {},
-            "relevant_files": [],
-        }
-        with (
-            mock.patch("archai.middleware.pipeline.ArchaiMiddleware") as mw_cls,
-            mock.patch("archai.orchestrator.orchestrator.ArchaiOrchestrator") as orch_cls,
-            mock.patch("archai.cli.output.format_context_packet") as fmt,
-        ):
-            mw_instance = mw_cls.return_value
-            mw_instance.process = mock.AsyncMock(return_value=mock.MagicMock())
-
-            orch_instance = orch_cls.return_value
-            context_packet = mock.MagicMock()
-            context_packet.model_dump.return_value = fake_packet
-            orch_instance.get_context = mock.AsyncMock(return_value=context_packet)
-
-            fmt.return_value = "Context output"
-            yield fmt, orch_cls
-
-    def test_ask_with_query(self, mock_orchestrator):
-        result = runner.invoke(app, ["ask", "How does auth work?", "/fake/repo"])
-        assert result.exit_code == 0
-        assert "Context output" in result.output
-
-    def test_ask_json_output(self, mock_orchestrator):
-        fmt, _ = mock_orchestrator
-        fmt.return_value = json.dumps({"focus": "API Layer"})
-        result = runner.invoke(app, ["ask", "How does auth work?", "/fake/repo", "--json"])
-        assert result.exit_code == 0
-        parsed = json.loads(result.output)
-        assert parsed["focus"] == "API Layer"
-
-    def test_ask_error_handling(self, mock_orchestrator):
-        _, orch_cls = mock_orchestrator
-        orch_instance = orch_cls.return_value
-        orch_instance.get_context = mock.AsyncMock(side_effect=RuntimeError("fail"))
-        result = runner.invoke(app, ["ask", "query", "/fake/repo"])
-        assert result.exit_code == 1
-        assert "Error: fail" in result.output
-
-    def test_ask_uses_detect_repo_root_when_no_path(self):
-        with (
-            mock.patch("archai.config.detect_repo_root", return_value="/detected/repo"),
-            mock.patch("archai.middleware.pipeline.ArchaiMiddleware") as mw_cls,
-            mock.patch("archai.orchestrator.orchestrator.ArchaiOrchestrator") as orch_cls,
-            mock.patch("archai.cli.output.format_context_packet") as fmt,
-        ):
-            mw_instance = mw_cls.return_value
-            mw_instance.process = mock.AsyncMock(return_value=mock.MagicMock())
-
-            orch_instance = orch_cls.return_value
-            context_packet = mock.MagicMock()
-            context_packet.model_dump.return_value = {
-                "focus": "detected",
-                "focus_reasoning": "",
-                "constraints": {},
-                "relevant_files": [],
-            }
-            orch_instance.get_context = mock.AsyncMock(return_value=context_packet)
-            fmt.return_value = "detected"
-
-            result = runner.invoke(app, ["ask", "query"])
-            assert result.exit_code == 0
-
-    @mock.patch.dict(
-        os.environ,
-        {"ARCHAI_LLM_MODEL": "gpt-4", "ARCHAI_LLM_API_BASE": "https://custom"},
-        clear=True,
-    )
-    def test_ask_env_var_propagation(self):
-        fake_packet = {
-            "focus": "Core",
-            "focus_reasoning": "Test",
-            "constraints": {},
-            "relevant_files": [],
-        }
-        with (
-            mock.patch("archai.inference.llm.litellm_provider.LiteLLMProvider") as llm_cls,
-            mock.patch("archai.middleware.pipeline.ArchaiMiddleware") as mw_cls,
-            mock.patch("archai.orchestrator.orchestrator.ArchaiOrchestrator") as orch_cls,
-            mock.patch("archai.cli.output.format_context_packet") as fmt,
-        ):
-            mw_instance = mw_cls.return_value
-            mw_instance.process = mock.AsyncMock(return_value=mock.MagicMock())
-
-            orch_instance = orch_cls.return_value
-            context_packet = mock.MagicMock()
-            context_packet.model_dump.return_value = fake_packet
-            orch_instance.get_context = mock.AsyncMock(return_value=context_packet)
-            fmt.return_value = "done"
-            result = runner.invoke(app, ["ask", "query", "/fake/repo"])
-            assert result.exit_code == 0
-            llm_cls.assert_called_once_with(model="gpt-4", api_base="https://custom", api_key=None)
+        assert "PROJECT_DIR" in result.output
 
 
 class TestMcpCommand:
@@ -278,36 +42,8 @@ class TestMcpCommand:
             mock_mcp.run.assert_called_once_with(transport="stdio")
 
 
-_ENV_PASSTHROUGH = {
-    "ANTHROPIC_API_KEY": "{env:ANTHROPIC_API_KEY}",
-    "OPENAI_API_KEY": "{env:OPENAI_API_KEY}",
-    "GEMINI_API_KEY": "{env:GEMINI_API_KEY}",
-    "GROQ_API_KEY": "{env:GROQ_API_KEY}",
-    "CEREBRAS_API_KEY": "{env:CEREBRAS_API_KEY}",
-    "NVIDIA_API_KEY": "{env:NVIDIA_API_KEY}",
-    "DEEPSEEK_API_KEY": "{env:DEEPSEEK_API_KEY}",
-    "MISTRAL_API_KEY": "{env:MISTRAL_API_KEY}",
-    "TOGETHER_API_KEY": "{env:TOGETHER_API_KEY}",
-    "ARCHAI_LLM_MODEL": "claude-sonnet-4-20250514",  # built-in default
-    "ARCHAI_LLM_API_KEY": "{env:ARCHAI_LLM_API_KEY}",
-}
-
-
 class TestInit:
     """Tests for the ``init`` command."""
-
-    MCP_SERVER_UV = {
-        "type": "local",
-        "command": ["uv", "run", "archai", "mcp"],
-        "enabled": True,
-        "environment": _ENV_PASSTHROUGH,
-    }
-    MCP_SERVER_DIRECT = {
-        "type": "local",
-        "command": ["archai", "mcp"],
-        "enabled": True,
-        "environment": _ENV_PASSTHROUGH,
-    }
 
     def test_creates_opencode_json(self, tmp_path):
         result = runner.invoke(app, ["init", str(tmp_path)])
@@ -319,58 +55,24 @@ class TestInit:
         assert archai_cfg["type"] == "local"
         assert archai_cfg["command"] == ["archai", "mcp"]
         assert archai_cfg["enabled"] is True
-        env = archai_cfg["environment"]
-        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
-        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
-        for key in _ALL_LLM_ENV_KEYS:
-            assert env.get(key) == "{env:" + key + "}"
+        # No environment block — archai needs no LLM config
+        assert "environment" not in archai_cfg
 
-    def test_uses_direct_by_default(self, tmp_path):
+    def test_no_environment_passthrough(self, tmp_path):
+        """Verify init does NOT add LLM environment passthrough."""
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
         config = json.loads((tmp_path / ".opencode.json").read_text())
         archai_cfg = config["mcp"]["archai"]
-        assert archai_cfg["type"] == "local"
-        assert archai_cfg["command"] == ["archai", "mcp"]
-        assert archai_cfg["enabled"] is True
-        env = archai_cfg["environment"]
-        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
-        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
+        assert "environment" not in archai_cfg
+        # Just the three required fields
+        assert set(archai_cfg.keys()) == {"type", "command", "enabled"}
 
-    def test_uv_flag_uses_uv_run(self, tmp_path):
-        result = runner.invoke(app, ["init", str(tmp_path), "--uv"])
-        assert result.exit_code == 0
-        config = json.loads((tmp_path / ".opencode.json").read_text())
-        archai_cfg = config["mcp"]["archai"]
-        assert archai_cfg["type"] == "local"
-        assert archai_cfg["command"] == ["uv", "run", "archai", "mcp"]
-        assert archai_cfg["enabled"] is True
-        env = archai_cfg["environment"]
-        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
-        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
-
-    def test_respects_force_flag(self, tmp_path):
-        config_file = tmp_path / ".opencode.json"
-        config_file.write_text('{"existing": true}')
-        result = runner.invoke(app, ["init", str(tmp_path)])
-        assert result.exit_code == 0
-        assert json.loads(config_file.read_text()) == {"existing": True}
-
-        result = runner.invoke(app, ["init", str(tmp_path), "--force"])
-        assert result.exit_code == 0
-        config = json.loads(config_file.read_text())
-        archai_cfg = config["mcp"]["archai"]
-        assert archai_cfg["type"] == "local"
-        assert archai_cfg["command"] == ["archai", "mcp"]
-        assert archai_cfg["enabled"] is True
-        env = archai_cfg["environment"]
-        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
-        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
-
-    def test_preserves_existing_config(self, tmp_path):
+    def test_preserves_existing_config_when_archai_not_configured(self, tmp_path):
+        """If .opencode.json exists but archai is not configured, add it."""
         config_file = tmp_path / ".opencode.json"
         config_file.write_text(json.dumps({"data": {"directory": ".opencode"}}))
-        result = runner.invoke(app, ["init", str(tmp_path), "--force"])
+        result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
         config = json.loads(config_file.read_text())
         assert config["data"]["directory"] == ".opencode"
@@ -378,64 +80,40 @@ class TestInit:
         assert archai_cfg["type"] == "local"
         assert archai_cfg["command"] == ["archai", "mcp"]
         assert archai_cfg["enabled"] is True
-        env = archai_cfg["environment"]
-        assert isinstance(env["ARCHAI_LLM_MODEL"], str) and env["ARCHAI_LLM_MODEL"]
-        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
 
-    def test_auto_detect_anthropic_key(self, tmp_path):
-        with (
-            mock.patch("archai.cli.app._read_opencode_config", return_value=None),
-            mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-fake"}, clear=True),
-        ):
-            result = runner.invoke(app, ["init", str(tmp_path)])
-            assert result.exit_code == 0
-            assert "ANTHROPIC_API_KEY" in result.output
-            assert "claude-sonnet-4-20250514" in result.output
-        config = json.loads((tmp_path / ".opencode.json").read_text())
-        env = config["mcp"]["archai"]["environment"]
-        assert env["ARCHAI_LLM_MODEL"] == "claude-sonnet-4-20250514"
-        assert "ARCHAI_LLM_API_KEY" in env
-
-    def test_auto_detect_openai_key(self, tmp_path):
-        with (
-            mock.patch("archai.cli.app._read_opencode_config", return_value=None),
-            mock.patch.dict(os.environ, {"OPENAI_API_KEY": "sk-fake"}, clear=True),
-        ):
-            result = runner.invoke(app, ["init", str(tmp_path)])
-            assert result.exit_code == 0
-            assert "OPENAI_API_KEY" in result.output
-            assert "gpt-4o" in result.output
-        config = json.loads((tmp_path / ".opencode.json").read_text())
-        env = config["mcp"]["archai"]["environment"]
-        assert env["ARCHAI_LLM_MODEL"] == "gpt-4o"
-        assert "ARCHAI_LLM_API_KEY" in env
-
-    def test_explicit_model_overrides_default(self, tmp_path):
-        with (
-            mock.patch("archai.cli.app._read_opencode_config", return_value=None),
-            mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-fake"}, clear=True),
-        ):
-            result = runner.invoke(app, ["init", str(tmp_path), "--model", "my-custom-model"])
-            assert result.exit_code == 0
-            assert "my-custom-model" in result.output
-        config = json.loads((tmp_path / ".opencode.json").read_text())
-        env = config["mcp"]["archai"]["environment"]
-        assert env["ARCHAI_LLM_MODEL"] == "my-custom-model"
-        assert "ARCHAI_LLM_API_KEY" in env
-
-    def test_custom_provider_flow(self, tmp_path):
-        with (
-            mock.patch("archai.cli.app._discover_providers", return_value=[]),
-            mock.patch.dict(os.environ, {}, clear=True),
-        ):
-            result = runner.invoke(
-                app,
-                ["init", str(tmp_path), "--interactive"],
-                input="1\ntest-model\nsk-test-key-123\nhttps://custom.api.com\n",
-            )
+    def test_skips_if_already_configured(self, tmp_path):
+        """If archai already configured, do nothing."""
+        config_file = tmp_path / ".opencode.json"
+        existing_config = {
+            "mcp": {
+                "archai": {
+                    "type": "local",
+                    "command": ["archai", "mcp"],
+                    "enabled": True,
+                }
+            }
+        }
+        config_file.write_text(json.dumps(existing_config))
+        result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        config = json.loads((tmp_path / ".opencode.json").read_text())
-        env = config["mcp"]["archai"]["environment"]
-        assert env["ARCHAI_LLM_API_KEY"] == "{env:ARCHAI_LLM_API_KEY}"
-        assert "test-model" in result.output
-        assert "ARCHAI_LLM_API_KEY" in result.output
+        # Config should not change
+        config = json.loads(config_file.read_text())
+        assert config == existing_config
+
+    def test_adds_to_existing_mcp_config(self, tmp_path):
+        """If other MCP servers exist, keep them."""
+        config_file = tmp_path / ".opencode.json"
+        existing_config = {
+            "mcp": {
+                "other-server": {
+                    "type": "local",
+                    "command": ["other", "command"],
+                }
+            }
+        }
+        config_file.write_text(json.dumps(existing_config))
+        result = runner.invoke(app, ["init", str(tmp_path)])
+        assert result.exit_code == 0
+        config = json.loads(config_file.read_text())
+        assert "other-server" in config["mcp"]
+        assert "archai" in config["mcp"]
