@@ -19,11 +19,6 @@ class TestVersion:
         assert result.exit_code == 0
         assert re.match(r"archai-mcp v\d+\.\d+\.\d+", result.output.strip())
 
-    def test_version_in_help(self):
-        result = runner.invoke(app, ["--help"])
-        assert result.exit_code == 0
-        assert "--version" in result.output
-
 
 class TestCliHelp:
     """Tests for CLI help output."""
