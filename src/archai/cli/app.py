@@ -6,13 +6,9 @@ Provides commands for MCP server integration and project initialization.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import typer
-
-# Suppress noisy litellm pre-load warnings (archai doesn't use litellm directly)
-os.environ.setdefault("LITELLM_LOG", "ERROR")
 
 app = typer.Typer(name="archai", help="Architecture-aware AI coding assistant")
 
