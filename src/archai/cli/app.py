@@ -43,7 +43,15 @@ def init(
 
     if config_file.exists():
         # Check if archai is already configured
-        mcp_config = existing.get("mcp", {})
+        raw_mcp = existing.get("mcp")
+        if raw_mcp is None:
+            mcp_config = {}
+        elif not isinstance(raw_mcp, dict):
+            raise ValueError(
+                f"Invalid type for 'mcp' in .opencode.json: expected dict, got {type(raw_mcp).__name__} ({raw_mcp!r})"
+            )
+        else:
+            mcp_config = raw_mcp
         if "archai" in mcp_config:
             typer.echo(
                 typer.style(

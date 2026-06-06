@@ -19,7 +19,7 @@
 
 The current architecture (002-sdd) defines archai as a dual-interface system:
 
-```
+```text
 CLI (typer)          MCP Server
   ├── archai start     ├── get_architecture_context
   ├── archai ask       ├── validate_code_change
@@ -32,7 +32,7 @@ The MCP Server **always** initializes an internal LLM (LiteLLMProvider) to seman
 
 When OpenCode uses archai:
 
-```
+```text
 OpenCode Agent                    archai MCP
     │                                  │
     │  get_architecture_context()      │
@@ -70,7 +70,7 @@ For a static analysis tool, this is noise that shouldn't exist.
 
 ### 1.2 The Correct Direction
 
-```
+```text
 OpenCode Agent                    archai MCP
     │                                  │
     │  get_architecture_context()      │
@@ -116,7 +116,7 @@ The `start` and `ask` commands exist so a **human** can use archai from the term
 
 **Decision**: `start` and `ask` are **removed entirely**, not hidden, not deprecated. archai becomes:
 
-```
+```text
 archai init    → Configure the project for OpenCode
 archai mcp     → MCP server (called by OpenCode automatically)
 ```
@@ -129,7 +129,7 @@ Two commands. That's the entire product surface.
 
 ### 2.1 System Context (New)
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      ARCHAI ARCHITECTURE v0.3.0                      │
 │                                                                      │
@@ -190,7 +190,7 @@ Two commands. That's the entire product surface.
 
 When a user requests a change in OpenCode:
 
-```
+```text
 User: "Add a login endpoint in the auth module"
 
 OpenCode Agent:
@@ -198,7 +198,7 @@ OpenCode Agent:
      ← focus_cluster: "cluster_2"
      ← focus_files: ["src/auth/login.py", "src/auth/tokens.py"]
      ← all_clusters: {cluster_1: [db/...], cluster_2: [auth/...], cluster_3: [api/...]}
-     ← cluster_edges: [{from: "cluster_2", to: "cluster_1"}, {from: "cluster_3", to: "cluster_2"}]
+     ← cluster_edges: [{from_cluster: "cluster_2", to_cluster: "cluster_1"}, {from_cluster: "cluster_3", to_cluster: "cluster_2"}]
      ← file_dependencies: {"src/auth/login.py": ["src/db/models.py"]}
 
   2. ITS LLM processes:
@@ -255,11 +255,11 @@ OpenCode Agent:
     "cluster_4": ["src/config/settings.py", "src/config/logging.py"]
   },
   "cluster_edges": [
-    {"from": "cluster_3", "to": "cluster_2"},
-    {"from": "cluster_3", "to": "cluster_1"},
-    {"from": "cluster_3", "to": "cluster_4"},
-    {"from": "cluster_2", "to": "cluster_1"},
-    {"from": "cluster_2", "to": "cluster_4"}
+    {"from_cluster": "cluster_3", "to_cluster": "cluster_2"},
+    {"from_cluster": "cluster_3", "to_cluster": "cluster_1"},
+    {"from_cluster": "cluster_3", "to_cluster": "cluster_4"},
+    {"from_cluster": "cluster_2", "to_cluster": "cluster_1"},
+    {"from_cluster": "cluster_2", "to_cluster": "cluster_4"}
   ],
   "file_dependencies": {
     "src/api/routes.py": ["src/auth/login.py", "src/db/models.py", "src/config/settings.py"],
@@ -317,9 +317,7 @@ OpenCode Agent:
   "new_imports_in_patch": ["src/db/models.py"],
   "patch_summary": {
     "files_changed": ["src/auth/login.py"],
-    "new_imports": ["src/db/models.py"],
-    "new_functions": ["login_user"],
-    "existing_functions_modified": []
+    "new_imports": ["src/db/models.py"]
   }
 }
 ```
@@ -359,7 +357,7 @@ OpenCode Agent:
 
 ### 4.1 Commands
 
-```
+```text
 BEFORE (v0.2.0):                    AFTER (v0.3.0):
   archai [OPTIONS] COMMAND            archai [OPTIONS] COMMAND
 
@@ -398,20 +396,16 @@ No more LLM auto-detection, no `ARCHAI_LLM_MODEL`, no interactive provider selec
 
 ### 4.3 User Flow
 
-```
+```bash
 # 1. Single global installation
 pip install archai-mcp
 
 # 2. In each project where archai is needed
 cd my-project
 archai init
-  → Creates .opencode.json with MCP config
 
 # 3. Open OpenCode and work
 opencode .
-  → OpenCode auto-detects archai MCP server
-  → The agent uses the tools transparently
-  → All analysis happens without user interaction
 ```
 
 **The user never touches `start` or `ask`.** They don't even know these commands existed.
@@ -447,7 +441,7 @@ def get_cluster_edges(graph, clusters) -> list[dict]:
     """Return dependency relationships between clusters.
     
     For each cluster, finds all imports to files in other clusters.
-    Returns edges like: [{"from": "cluster_3", "to": "cluster_2"}, ...]
+    Returns edges like: [{"from_cluster": "cluster_3", "to_cluster": "cluster_2"}, ...]
     """
 
 def get_file_dependencies(graph, files=None) -> dict[str, list[str]]:
@@ -565,7 +559,7 @@ This is **optional**. The system works without these rules — they only improve
 
 **Nothing.** The workflow is identical:
 
-```
+```bash
 pip install archai-mcp
 cd project
 archai init

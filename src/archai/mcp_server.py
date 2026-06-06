@@ -120,11 +120,18 @@ async def validate_code_change(repo_path: str, changes: list[dict]) -> str:
                     ):
                         cluster_deps["imported_by_clusters"].append(e.from_cluster)
 
-            # Detect new imports in the patch
+            # Detect new imports in the patch (added lines only)
             import re
 
+            added_lines = [
+                line[1:]
+                for line in change.patch.splitlines()
+                if line.startswith("+") and not line.startswith("+++")
+            ]
+            added_text = "\n".join(added_lines)
+
             new_imports = re.findall(
-                r"^(?:from\s+(\S+)\s+)?import\s+(\S+)", change.patch, re.MULTILINE
+                r"^(?:from\s+(\S+)\s+)?import\s+(\S+)", added_text, re.MULTILINE
             )
             new_import_paths = []
             for from_match, import_match in new_imports:
@@ -151,6 +158,8 @@ async def validate_code_change(repo_path: str, changes: list[dict]) -> str:
             )
             results.append(validation.model_dump())
 
+        if not results:
+            return json.dumps({"changes": [], "note": "No changes to validate"}, indent=2)
         return json.dumps(results if len(results) > 1 else results[0], indent=2)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
