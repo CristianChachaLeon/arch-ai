@@ -15,7 +15,7 @@ class TestCLangHandler:
         assert self.handler.language == "c"
 
     def test_extensions(self):
-        assert self.handler.extensions == frozenset({".c", ".h"})
+        assert self.handler.extensions == frozenset({".c"})
 
     def test_project_files(self):
         assert "Makefile" in self.handler.project_files
@@ -109,15 +109,17 @@ class TestCLangHandler:
         try:
             import tree_sitter_c  # noqa: F401
 
-            # Grammar IS installed — verify it parses without error
-            c_file = tmp_path / "test.c"
-            c_file.write_text("int main() { return 0; }")
+            has_grammar = True
+        except ImportError:
+            has_grammar = False
+
+        c_file = tmp_path / "test.c"
+        c_file.write_text("int main() { return 0; }")
+
+        if has_grammar:
             parsed = self.handler.parse(c_file)
             assert parsed.language == "c"
-        except ImportError:
-            # Grammar NOT installed — verify helpful error message
-            c_file = tmp_path / "test.c"
-            c_file.write_text("int main() { return 0; }")
+        else:
             with pytest.raises(ImportError, match="tree-sitter-c"):
                 self.handler.parse(c_file)
 
@@ -195,15 +197,17 @@ class TestCppLangHandler:
         try:
             import tree_sitter_cpp  # noqa: F401
 
-            # Grammar IS installed — verify it parses without error
-            cpp_file = tmp_path / "test.cpp"
-            cpp_file.write_text("int main() { return 0; }")
+            has_grammar = True
+        except ImportError:
+            has_grammar = False
+
+        cpp_file = tmp_path / "test.cpp"
+        cpp_file.write_text("int main() { return 0; }")
+
+        if has_grammar:
             parsed = self.handler.parse(cpp_file)
             assert parsed.language == "cpp"
-        except ImportError:
-            # Grammar NOT installed — verify helpful error message
-            cpp_file = tmp_path / "test.cpp"
-            cpp_file.write_text("int main() { return 0; }")
+        else:
             with pytest.raises(ImportError, match="tree-sitter-cpp"):
                 self.handler.parse(cpp_file)
 

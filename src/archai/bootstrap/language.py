@@ -93,7 +93,6 @@ SHARED_EXCLUDED_DIRS: frozenset[str] = frozenset(
         ".coverage",
         "htmlcov",
         ".egg-info",
-        ".gitignore",
     }
 )
 

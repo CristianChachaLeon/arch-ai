@@ -114,12 +114,20 @@ class ArchaiMiddleware:
         handler_by_ext: dict[str, LangHandler] = {}
         for h in handlers:
             for ext in h.extensions:
+                if ext in handler_by_ext:
+                    logger.warning(
+                        "Extension %s already registered by %s, skipping %s",
+                        ext,
+                        handler_by_ext[ext].language,
+                        h.language,
+                    )
+                    continue
                 handler_by_ext[ext] = h
 
         # Step 2-3: Discover + Parse files for each language
         all_parsed: list[ParsedFile] = []
         all_file_paths: set[str] = set()
-        errors: list[tuple[str, str]] = []
+        errors_count = 0
 
         for handler in handlers:
             files = discover_files(repo, handler.extensions, handler.excluded_dirs)
@@ -133,13 +141,13 @@ class ArchaiMiddleware:
                     all_file_paths.add(rel_path)
 
                 except (SyntaxError, UnicodeDecodeError, OSError) as e:
-                    errors.append((f.name, str(e)))
+                    errors_count += 1
                     logger.warning(f"Failed to parse {f.name}: {e}")
                 except Exception:
                     logger.exception("Unexpected bootstrap failure while parsing %s", f)
                     raise
 
-        logger.debug(f"Parsed {len(all_parsed)} files, {len(errors)} errors")
+        logger.debug("Parsed %d files with %d errors", len(all_parsed), errors_count)
 
         # Step 4: Resolve imports (second pass — needs all parsed files)
         file_nodes: list[FileNode] = []

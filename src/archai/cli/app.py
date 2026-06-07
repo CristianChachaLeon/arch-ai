@@ -107,7 +107,6 @@ def analyze(
 ):
     """Analyze a repository and show its architecture."""
     import asyncio
-    from pathlib import Path
 
     from rich.console import Console
     from rich.table import Table
@@ -145,12 +144,6 @@ def analyze(
     # Dependencies tree
     if deps and result.file_count > 0:
         dep_tree = Tree(f"📦 [bold]Dependency Graph ({result.edge_count} edges)[/bold]")
-        # Group files by cluster for cleaner display
-        file_to_cluster = {}
-        for cname, files in result.clusters.items():
-            for f in files:
-                file_to_cluster[f] = cname
-
         for node in sorted(result.graph.graph.nodes()):
             n = result.graph.get_node(node)
             if n and n.imports:
@@ -175,7 +168,7 @@ def analyze(
             key_files = sorted(files)[:3]
             key_str = ", ".join(key_files)
             if len(files) > 3:
-                key_str += f" ... y {len(files) - 3} más"
+                key_str += f" ... and {len(files) - 3} more"
             cluster_table.add_row(cname, str(len(files)), key_str)
 
         console.print(cluster_table)

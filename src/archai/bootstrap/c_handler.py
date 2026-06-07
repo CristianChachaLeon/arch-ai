@@ -38,7 +38,9 @@ def _get_c_parser() -> Any:
     try:
         from tree_sitter_c import language  # type: ignore[import-not-found]
     except ImportError:
-        raise ImportError("tree-sitter-c is not installed. Run: pip install archai-mcp[c]")
+        raise ImportError(
+            "tree-sitter-c is not installed. Run: pip install archai-mcp[c]"
+        ) from None
 
     # Must create Language AFTER C++ was created (see _get_cpp_parser)
     return tree_sitter.Parser(tree_sitter.Language(language()))
@@ -48,7 +50,9 @@ def _get_cpp_parser() -> Any:
     try:
         from tree_sitter_cpp import language  # type: ignore[import-not-found]
     except ImportError:
-        raise ImportError("tree-sitter-cpp is not installed. Run: pip install archai-mcp[cpp]")
+        raise ImportError(
+            "tree-sitter-cpp is not installed. Run: pip install archai-mcp[cpp]"
+        ) from None
 
     return tree_sitter.Parser(tree_sitter.Language(language()))
 
@@ -168,7 +172,7 @@ def _resolve_include(
 @register_handler  # type: ignore[arg-type]
 class CLangHandler:
     language = "c"
-    extensions = frozenset({".c", ".h"})
+    extensions = frozenset({".c"})
     project_files = (
         "Makefile",
         "CMakeLists.txt",

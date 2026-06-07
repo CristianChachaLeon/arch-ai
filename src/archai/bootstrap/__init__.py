@@ -10,12 +10,6 @@ Pipeline:
 from archai.bootstrap.language import ParsedFile, LangHandler, detect_languages, register_handler
 from archai.bootstrap.python_handler import PythonLangHandler
 from archai.bootstrap.file_discovery import discover_python_files, discover_files
-
-# Register optional language handlers (silently skip if deps not installed)
-try:
-    from archai.bootstrap.c_handler import CLangHandler, CppLangHandler  # noqa: F401
-except ImportError:
-    pass
 from archai.bootstrap.ast_parser import parse_python_file, get_imports, get_functions, get_classes
 from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
 from archai.bootstrap.graph_builder import build_graph, FileGraph
@@ -49,8 +43,6 @@ __all__ = [
     "detect_languages",
     "register_handler",
     "PythonLangHandler",
-    "CLangHandler",
-    "CppLangHandler",
     # Cache
     "compute_repo_hash",
     "save_cache",
@@ -59,3 +51,11 @@ __all__ = [
     "invalidate_cache",
     "get_cache_path",
 ]
+
+# Register optional language handlers (silently skip if deps not installed)
+try:
+    from archai.bootstrap.c_handler import CLangHandler, CppLangHandler  # noqa: F401
+
+    __all__ += ["CLangHandler", "CppLangHandler"]
+except ImportError:
+    pass

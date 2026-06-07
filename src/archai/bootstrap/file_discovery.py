@@ -57,11 +57,10 @@ def discover_files(
                 continue
 
             # Skip excluded directories (exact match or .egg-info/.dist-info suffixes)
-            if any(
-                ex in path.parts or part.endswith(".egg-info") or part.endswith(".dist-info")
-                for part in path.parts
-                for ex in excludes
-            ):
+            parts = path.parts
+            if any(ex in parts for ex in excludes):
+                continue
+            if any(part.endswith((".egg-info", ".dist-info")) for part in parts):
                 continue
 
             # Skip files starting with underscore (except __init__.py) — Python convention
