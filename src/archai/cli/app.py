@@ -103,6 +103,9 @@ def init(
 @app.command()
 def analyze(
     repo_path: str = typer.Argument(".", help="Path to the repository to analyze"),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output as JSON instead of pretty-print"
+    ),
     clusters: bool = typer.Option(
         True, "--clusters/--no-clusters", help="Show cluster information"
     ),
@@ -116,6 +119,7 @@ def analyze(
 ):
     """Analyze a repository and show its architecture."""
     import asyncio
+    import json as stdjson
 
     from rich.console import Console
     from rich.table import Table
@@ -135,8 +139,16 @@ def analyze(
         try:
             result = asyncio.run(ArchaiMiddleware().process(str(repo)))
         except Exception as e:
-            console.print(f"\n[red]✗ Error analyzing repository:[/red] {e}")
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error analyzing repository:[/red] {e}")
             raise typer.Exit(code=1)
+
+    # JSON output
+    if json_output:
+        console.print(stdjson.dumps(result.to_dict(), indent=2))
+        return
 
     # Summary
     summary = Table.grid(padding=(0, 2))
