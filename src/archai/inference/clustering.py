@@ -213,8 +213,8 @@ def _calc_function_similarity(fg: FunctionGraph, key_a: str, key_b: str) -> int:
     # Signal 1: Same naming prefix (e.g., "print*", "sel*", "du_*")
     name_a = node_a.name
     name_b = node_b.name
-    prefix_a = re.match(r"^([a-z_][a-z0-9_]*)", name_a)
-    prefix_b = re.match(r"^([a-z_][a-z0-9_]*)", name_b)
+    prefix_a = re.match(r"^([A-Za-z_][a-z0-9_]*)", name_a)
+    prefix_b = re.match(r"^([A-Za-z_][a-z0-9_]*)", name_b)
     if prefix_a and prefix_b and prefix_a.group(1) == prefix_b.group(1):
         similarity += FUNCTION_PREFIX_MATCH_WEIGHT
 

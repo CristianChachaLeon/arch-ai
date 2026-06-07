@@ -269,13 +269,20 @@ class ArchaiOrchestrator:
             BlastRadiusResponse with the analysis results
 
         Raises:
-            ValueError: If file_path is not in the dependency graph
+            ValueError: If file_path is not in the dependency graph, or if
+                function_name is provided but not found in the function graph
         """
         pipeline_result = await self._get_pipeline_result(repo_path)
         graph = pipeline_result.graph.graph
 
         if function_name is not None and pipeline_result.function_graph is not None:
             fg = pipeline_result.function_graph
+            key = f"{file_path}::{function_name}"
+            if key not in fg.graph:
+                raise ValueError(
+                    f"Function '{function_name}' not found in '{file_path}' — "
+                    f"missing key '{key}' in function graph"
+                )
             deps = get_function_dependencies(fg, file_path, function_name)
             dependents = get_function_dependents(fg, file_path, function_name)
             return BlastRadiusResponse(

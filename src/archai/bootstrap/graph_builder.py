@@ -25,7 +25,7 @@ class FileNode:
         imports: List[str] = None,
         functions: List[str] = None,
         classes: List[str] = None,
-        functions_detail: list = None,
+        functions_detail: list | None = None,
     ):
         # Normalize path to use forward slashes
         self.path = path.replace("\\", "/")
@@ -49,12 +49,14 @@ class FunctionNode:
         file_path: Path of the file containing this function.
         calls_internal: Functions called within the same file.
         calls_external: Functions called in other project files.
+        is_static: Whether the function is file-scoped (e.g., C `static`).
     """
 
     name: str
     file_path: str
     calls_internal: list[str]
     calls_external: list[str]
+    is_static: bool = False
 
 
 class FunctionGraph:
@@ -128,6 +130,10 @@ def build_function_graph(file_nodes: list[FileNode]) -> FunctionGraph:
             all_funcs[key] = node
             fg.add_node(key, node)
 
+    name_to_keys: dict[str, list[str]] = {}
+    for k, n in all_funcs.items():
+        name_to_keys.setdefault(n.name, []).append(k)
+
     for key, node in all_funcs.items():
         for callee in node.calls_internal:
             callee_key = _build_key(node.file_path, callee)
@@ -135,8 +141,9 @@ def build_function_graph(file_nodes: list[FileNode]) -> FunctionGraph:
                 fg.graph.add_edge(key, callee_key)
 
         for callee in node.calls_external:
-            for other_key, other_node in all_funcs.items():
-                if other_node.name == callee and other_node.file_path != node.file_path:
+            for other_key in name_to_keys.get(callee, []):
+                other_node = all_funcs[other_key]
+                if other_node.file_path != node.file_path and not other_node.is_static:
                     fg.graph.add_edge(key, other_key)
 
     return fg

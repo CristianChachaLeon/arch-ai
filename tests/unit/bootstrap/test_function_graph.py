@@ -57,7 +57,7 @@ class TestBuildFunctionGraph:
         funcs = []
         for i in range(count):
             kwargs = {"name": f"f{i}", "line": i + 1}
-            for key, val in overrides.items():
+            for val in overrides.values():
                 if isinstance(val, dict) and i in val:
                     kwargs.update(val[i])
             funcs.append(FunctionInfo(**kwargs))

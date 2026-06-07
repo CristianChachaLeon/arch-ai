@@ -65,7 +65,7 @@ class ArchaiMiddleware:
         function_graph = None
         if file_nodes:
             function_graph = build_function_graph(file_nodes)
-            if function_graph and function_graph.node_count > 0:
+            if function_graph.node_count > 0:
                 sub_clusters = cluster_functions(function_graph)
 
         # Step 5: Inference (clustering)

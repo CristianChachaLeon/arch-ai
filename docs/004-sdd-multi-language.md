@@ -381,7 +381,7 @@ The architecture tools become effectively useless for the exact codebases where 
 
 ### 10.2 Proposed Pipeline Extension
 
-```
+```text
 Current (v0.4.0):
   parse → build FileGraph → cluster_files → label
 
@@ -424,10 +424,10 @@ Similarity signals adapted for functions:
 
 | Signal | Weight | Description |
 |--------|--------|-------------|
-| `SAME_FILE_WEIGHT` | 5 | Base similarity for functions in same file |
-| `BIDIRECTIONAL_CALL_WEIGHT` | 4 | Functions that call each other |
-| `UNIDIRECTIONAL_CALL_WEIGHT` | 2 | A calls B (one direction) |
-| `SHARED_CALLED_WEIGHT` | 1 | Functions calling the same target functions |
+| `FUNCTION_PREFIX_MATCH_WEIGHT` | 8 | Functions sharing the same naming prefix |
+| `FUNCTION_BIDIRECTIONAL_CALL_WEIGHT` | 10 | Functions that call each other |
+| `FUNCTION_UNIDIRECTIONAL_CALL_WEIGHT` | 5 | A calls B (one direction) |
+| `FUNCTION_SHARED_CALLED_WEIGHT` | 2 | Functions calling the same target functions |
 
 ### 10.6 Output Format
 

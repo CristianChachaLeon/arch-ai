@@ -200,7 +200,7 @@ def analyze(
         console.print()
 
     # Sub-clusters (intra-file modules)
-    if result.sub_clusters:
+    if sub_clusters and result.sub_clusters:
         console.print("[bold]📦 Intra-File Modules (sub-clusters)[/bold]")
         for file_path, modules in sorted(result.sub_clusters.items()):
             sub_tree = Tree(f"📄 [bold]{file_path}[/bold]")
