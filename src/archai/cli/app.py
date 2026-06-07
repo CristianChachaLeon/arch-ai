@@ -764,5 +764,205 @@ def _parse_patch_file(patch_text: str) -> list:
     return changes
 
 
+@app.command()
+def check(
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Check architecture design rules.
+
+    Scans the repository for circular dependencies and architectural issues.
+    """
+    import asyncio
+    import json as stdjson
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    middleware = ArchaiMiddleware()
+    with console.status(f"[bold green]Checking {repo.name}..."):
+        try:
+            result = asyncio.run(middleware.process(str(repo)))
+        except Exception as e:
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    cycles = result.graph.detect_cycles()
+    issues = []
+    if cycles:
+        for cycle in cycles:
+            issues.append(
+                {
+                    "type": "circular_dependency",
+                    "severity": "high",
+                    "files": cycle,
+                    "message": f"Circular dependency: {' → '.join(cycle)}",
+                }
+            )
+
+    if json_output:
+        console.print(stdjson.dumps({"issues": issues, "total_issues": len(issues)}, indent=2))
+        return
+
+    console.print()
+    console.print(Panel(f"[bold]Issues found:[/bold] {len(issues)}", title="🔍 Architecture Check"))
+    console.print()
+
+    if issues:
+        issue_table = Table(show_header=True, header_style="bold magenta")
+        issue_table.add_column("Type", style="cyan")
+        issue_table.add_column("Severity", style="red")
+        issue_table.add_column("Message", style="white")
+        for issue in issues:
+            issue_table.add_row(issue["type"], issue["severity"].upper(), issue["message"])
+        console.print(issue_table)
+    else:
+        console.print("[green]✅ No issues found[/green]")
+
+
+@app.command()
+def plan(
+    description: str = typer.Argument(..., help="Description of the desired change"),
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Suggest files affected for a desired change.
+
+    Uses the dependency graph to suggest which files/functions
+    would need modification for a given change description.
+    """
+    import asyncio
+    import json as stdjson
+
+    from rich.console import Console
+    from rich.panel import Panel
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    middleware = ArchaiMiddleware()
+
+    with console.status(f"[bold green]Planning for '{description}'..."):
+        try:
+            result = asyncio.run(middleware.process(str(repo)))
+        except Exception as e:
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    # Find files matching the description keywords in their names
+    keywords = description.lower().split()
+    matched_files = []
+    for file_path in result.graph.graph.nodes():
+        if file_path == "external":
+            continue
+        path_lower = file_path.lower()
+        matches = sum(1 for kw in keywords if kw in path_lower)
+        if matches > 0:
+            matched_files.append({"file": file_path, "relevance": matches})
+
+    matched_files.sort(key=lambda x: -x["relevance"])
+
+    if json_output:
+        console.print(
+            stdjson.dumps(
+                {
+                    "description": description,
+                    "suggested_files": [m["file"] for m in matched_files],
+                    "total_matches": len(matched_files),
+                },
+                indent=2,
+            )
+        )
+        return
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]Change:[/bold] {description}\n"
+            f"[bold]Files matched:[/bold] {len(matched_files)}",
+            title="📋 Change Plan",
+        )
+    )
+    console.print()
+
+    if matched_files:
+        for m in matched_files:
+            console.print(f"  [cyan]{m['file']}[/cyan] (relevance: {m['relevance']})")
+
+
+@app.command()
+def ci(
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+):
+    """Run archai checks for CI/CD pipelines.
+
+    Exits with code 1 if issues are found (circular deps, etc.).
+    Outputs JSON report to stdout.
+    """
+    import asyncio
+    import json as stdjson
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        print(stdjson.dumps({"error": f"Not a directory: {repo}"}))
+        raise typer.Exit(code=1)
+
+    try:
+        result = asyncio.run(ArchaiMiddleware().process(str(repo)))
+    except Exception as e:
+        print(stdjson.dumps({"error": str(e)}))
+        raise typer.Exit(code=1)
+
+    cycles = result.graph.detect_cycles()
+    issues = []
+    if cycles:
+        for cycle in cycles:
+            issues.append(
+                {
+                    "type": "circular_dependency",
+                    "severity": "high",
+                    "message": f"Circular dependency: {' → '.join(cycle)}",
+                }
+            )
+
+    report = {
+        "repo": str(repo),
+        "file_count": result.file_count,
+        "cluster_count": result.cluster_count,
+        "issues": issues,
+        "total_issues": len(issues),
+        "healthy": len(issues) == 0,
+    }
+
+    print(stdjson.dumps(report, indent=2))
+    if issues:
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()

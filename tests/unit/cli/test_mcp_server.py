@@ -468,3 +468,32 @@ class TestTraceFeatureFlow:
         parsed = json.loads(result)
         assert "error" in parsed
         assert "function not found" in parsed["error"]
+
+
+class TestProposeChange:
+    """Tests for the ``propose_change`` MCP tool."""
+
+    async def test_returns_suggestions(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        orch.propose_change = AsyncMock(
+            return_value={
+                "description": "add auth",
+                "suggested_files": ["src/auth/login.py", "src/auth/logout.py"],
+                "total_matches": 2,
+            }
+        )
+
+        result = await m.propose_change("/fake/repo", "add auth")
+        parsed = json.loads(result)
+        assert parsed["total_matches"] == 2
+        assert "src/auth/login.py" in parsed["suggested_files"]
+
+    async def test_error_returns_json_error(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        orch.propose_change = AsyncMock(side_effect=ValueError("processing failed"))
+
+        result = await m.propose_change("/fake/repo", "test")
+        parsed = json.loads(result)
+        assert "error" in parsed

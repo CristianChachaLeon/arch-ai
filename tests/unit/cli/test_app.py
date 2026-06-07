@@ -280,6 +280,54 @@ class TestTraceCommand:
             assert "cfg" in parsed["shared_state"]
 
 
+class TestCheckCommand:
+    """Tests for the ``check`` command."""
+
+    def test_check_help(self):
+        result = runner.invoke(app, ["check", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Check architecture" in plain
+        assert "--json" in plain
+
+    def test_check_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["check", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+
+class TestPlanCommand:
+    """Tests for the ``plan`` command."""
+
+    def test_plan_help(self):
+        result = runner.invoke(app, ["plan", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Suggest files" in plain
+        assert "DESCRIPTION" in plain
+        assert "--json" in plain
+
+    def test_plan_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["plan", "add feature", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+
+class TestCiCommand:
+    """Tests for the ``ci`` command."""
+
+    def test_ci_help(self):
+        result = runner.invoke(app, ["ci", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Run archai checks" in plain
+        assert "REPO_PATH" in plain
+
+    def test_ci_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["ci", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+
+
 class TestInit:
     """Tests for the ``init`` command."""
 
