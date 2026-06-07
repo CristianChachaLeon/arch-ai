@@ -373,3 +373,28 @@ class TestBlastCommand:
         result = runner.invoke(app, ["blast", "x.py", str(tmp_path / "nonexistent")])
         assert result.exit_code == 1
         assert "Error" in result.output
+
+
+class TestValidateCommand:
+    """Tests for the ``validate`` command."""
+
+    def test_validate_help(self):
+        result = runner.invoke(app, ["validate", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Validate proposed code changes" in plain
+        assert "PATCH_FILE" in plain
+        assert "--json" in plain
+
+    def test_validate_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["validate", "x.patch", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    def test_validate_nonexistent_patch(self, tmp_path):
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+        result = runner.invoke(app, ["validate", str(tmp_path / "nope.patch"), str(project)])
+        assert result.exit_code == 1
+        assert "not found" in result.output
