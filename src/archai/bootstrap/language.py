@@ -149,7 +149,7 @@ def detect_languages(repo: Path) -> list[LangHandler]:
                 break
         else:
             # Fallback: check if any files with handler extensions exist
-            if any(repo.rglob(f"*{ext}") for ext in handler.extensions):
+            if any(any(repo.rglob(f"*{ext}")) for ext in handler.extensions):
                 handlers.append(handler)
 
     return handlers

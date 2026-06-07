@@ -228,3 +228,91 @@ class TestDiscoverFiles:
         result = discover_files(tmp_path, frozenset({".c"}))
 
         assert len(result) == 2
+
+
+class TestLanguageProtocol:
+    """Tests for the language protocol module (register_handler, detect_languages)."""
+
+    @staticmethod
+    def test_get_registered_handlers():
+        from archai.bootstrap.language import get_registered_handlers
+
+        handlers = get_registered_handlers()
+        assert isinstance(handlers, dict)
+        assert "python" in handlers
+
+    @staticmethod
+    def test_register_handler_without_language():
+        from archai.bootstrap.language import register_handler
+
+        class NoLangHandler:
+            pass
+
+        with pytest.raises(ValueError, match="must have a 'language' attribute"):
+            register_handler(NoLangHandler)
+
+    @staticmethod
+    def test_detect_languages_via_project_file(tmp_path):
+        from archai.bootstrap.language import detect_languages
+
+        (tmp_path / "Makefile").touch()
+        handlers = detect_languages(tmp_path)
+        langs = {h.language for h in handlers}
+        assert "c" in langs
+
+    @staticmethod
+    def test_detect_languages_empty_dir(tmp_path):
+        from archai.bootstrap.language import detect_languages
+
+        handlers = detect_languages(tmp_path)
+        assert len(handlers) == 0
+
+    @staticmethod
+    def test_detect_languages_fallback_extension(tmp_path):
+        from archai.bootstrap.language import detect_languages
+
+        (tmp_path / "main.c").touch()
+        handlers = detect_languages(tmp_path)
+        langs = {h.language for h in handlers}
+        assert "c" in langs
+
+    @staticmethod
+    def test_protocol_is_project_root_default(tmp_path):
+        from archai.bootstrap.language import LangHandler
+
+        class DefaultHandler(LangHandler):
+            language = "default"
+            extensions = frozenset()
+            project_files = ()
+            excluded_dirs = frozenset()
+
+        handler = DefaultHandler()
+        assert handler.is_project_root(tmp_path) is None
+
+    @staticmethod
+    def test_protocol_parse_default(tmp_path):
+        from archai.bootstrap.language import LangHandler
+
+        class DefaultHandler(LangHandler):
+            language = "default"
+            extensions = frozenset()
+            project_files = ()
+            excluded_dirs = frozenset()
+
+        handler = DefaultHandler()
+        result = handler.parse(tmp_path / "nonexistent.txt")
+        assert result is None
+
+    @staticmethod
+    def test_protocol_resolve_import_default(tmp_path):
+        from archai.bootstrap.language import LangHandler
+
+        class DefaultHandler(LangHandler):
+            language = "default"
+            extensions = frozenset()
+            project_files = ()
+            excluded_dirs = frozenset()
+
+        handler = DefaultHandler()
+        result = handler.resolve_import("foo", "bar.py", set(), tmp_path)
+        assert result is None

@@ -243,3 +243,165 @@ class TestResolveSingleImport:
             ".sub.service", "src/services/__init__.py", all_files, Path("/root")
         )
         assert result == "src/services/sub/service.py"
+
+
+class TestResolveSingleImportDirect:
+    """Direct _resolve_single_import tests for edge cases (empty importer_path)."""
+
+    @staticmethod
+    def test_relative_without_importer_path():
+        from archai.bootstrap.dependency_resolver import _resolve_single_import
+
+        result = _resolve_single_import(".module", {}, {}, "")
+        assert result == ""
+
+    @staticmethod
+    def test_relative_multi_level_without_importer_path():
+        from archai.bootstrap.dependency_resolver import _resolve_single_import
+
+        result = _resolve_single_import("..module", {}, {}, "")
+        assert result == ""
+
+    @staticmethod
+    def test_relative_just_dots_without_importer_path():
+        from archai.bootstrap.dependency_resolver import _resolve_single_import
+
+        result = _resolve_single_import("..", {}, {}, "")
+        assert result == "__init__.py"
+
+    @staticmethod
+    def test_relative_single_dot_without_importer_path():
+        from archai.bootstrap.dependency_resolver import _resolve_single_import
+
+        result = _resolve_single_import(".", {}, {}, "")
+        assert result == "__init__.py"
+
+    @staticmethod
+    def test_relative_without_importer_stem_match():
+        from archai.bootstrap.dependency_resolver import _resolve_single_import
+
+        result = _resolve_single_import(".helper", {"helper": "utils/helper.py"}, {}, "")
+        assert result == "utils/helper.py"
+
+
+class TestResolveImportsFunction:
+    """Tests for resolve_imports() function — covers lines 233-281."""
+
+    @staticmethod
+    def test_basic_resolution():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="src/main.py", imports=["utils.helpers", "os"]),
+            FileNode(path="src/utils/helpers.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert len(resolved) == 2
+        assert resolved[0].imports == ["src/utils/helpers.py"]
+
+    @staticmethod
+    def test_filters_non_existent():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="src/main.py", imports=["nonexistent.nope"]),
+            FileNode(path="src/utils.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[0].imports == []
+
+    @staticmethod
+    def test_filters_stdlib():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="src/main.py", imports=["os", "logging"]),
+            FileNode(path="src/utils.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[0].imports == []
+
+    @staticmethod
+    def test_stem_fallback_when_module_lookup_misses():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="src/main.py", imports=["other_pkg.helper"]),
+            FileNode(path="deep/path/helper.py", imports=[]),
+            FileNode(path="helper.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[0].imports == ["helper.py"]
+
+    @staticmethod
+    def test_stem_skips_longer_path_when_shorter_registered_first():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="helper.py", imports=[]),
+            FileNode(path="deep/path/helper.py", imports=[]),
+            FileNode(path="src/main.py", imports=["other_pkg.helper"]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[2].imports == ["helper.py"]
+
+    @staticmethod
+    def test_init_file_resolution():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="src/main.py", imports=["pkg_a"]),
+            FileNode(path="src/pkg_a/__init__.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[0].imports == ["src/pkg_a/__init__.py"]
+
+    @staticmethod
+    def test_module_suffix_resolution():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="src/main.py", imports=["pkg_a.utils.helper"]),
+            FileNode(path="src/pkg_a/utils/helper.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[0].imports == ["src/pkg_a/utils/helper.py"]
+
+    @staticmethod
+    def test_preserves_functions_and_classes():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(
+                path="src/main.py",
+                imports=["utils.helpers"],
+                functions=["main"],
+                classes=["App"],
+            ),
+            FileNode(path="src/utils/helpers.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[0].functions == ["main"]
+        assert resolved[0].classes == ["App"]
+
+    @staticmethod
+    def test_relative_import_resolution():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="src/services/main.py", imports=[".module"]),
+            FileNode(path="src/services/module.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[0].imports == ["src/services/module.py"]
+
+    @staticmethod
+    def test_empty_imports_stays_empty():
+        from archai.bootstrap.dependency_resolver import resolve_imports, FileNode
+
+        nodes = [
+            FileNode(path="src/main.py", imports=[]),
+            FileNode(path="src/utils.py", imports=[]),
+        ]
+        resolved = resolve_imports(nodes)
+        assert resolved[0].imports == []

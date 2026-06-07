@@ -130,3 +130,26 @@ from ...pkg import z
         assert result.functions == []
         assert result.classes == []
         assert result.imports == []
+
+
+class TestPythonLangHandlerIsProjectRoot:
+    """Tests for PythonLangHandler.is_project_root()."""
+
+    @staticmethod
+    def test_is_project_root_with_pyproject_toml(tmp_path: Path):
+        (tmp_path / "pyproject.toml").touch()
+        assert PythonLangHandler().is_project_root(tmp_path) is True
+
+    @staticmethod
+    def test_is_project_root_with_setup_py(tmp_path: Path):
+        (tmp_path / "setup.py").touch()
+        assert PythonLangHandler().is_project_root(tmp_path) is True
+
+    @staticmethod
+    def test_is_project_root_with_setup_cfg(tmp_path: Path):
+        (tmp_path / "setup.cfg").touch()
+        assert PythonLangHandler().is_project_root(tmp_path) is True
+
+    @staticmethod
+    def test_is_project_root_empty(tmp_path: Path):
+        assert PythonLangHandler().is_project_root(tmp_path) is False

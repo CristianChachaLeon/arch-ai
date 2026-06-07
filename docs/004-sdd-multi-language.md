@@ -161,8 +161,8 @@ Pipeline._run_bootstrap(repo):
 | Language | Extensions | Project Files | Parser | Priority |
 |----------|------------|---------------|--------|----------|
 | Python | `.py` | `setup.py`, `pyproject.toml` | stdlib `ast` | **P0** |
-| TypeScript | `.ts`, `.tsx` | `tsconfig.json` | tree-sitter-ts | **P1** |
-| JavaScript | `.js`, `.jsx` | `package.json` | tree-sitter-js | **P1** |
+| TypeScript | `.ts`, `.tsx`, `.mts`, `.cts` | `tsconfig.json` | tree-sitter-ts | **P1** |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` | `package.json` | tree-sitter-js | **P1** |
 | Go | `.go` | `go.mod` | tree-sitter-go | **P2** |
 | Rust | `.rs` | `Cargo.toml` | tree-sitter-rust | **P2** |
 | C | `.c`, `.h` | `Makefile`, `CMakeLists.txt` | tree-sitter-c | **P1** |
@@ -280,7 +280,7 @@ Core deps stay unchanged: `typer`, `rich`, `pydantic`, `tree-sitter`, `networkx`
 
 When archai detects a language whose handler isn't installed:
 
-```
+```text
 Warning: TypeScript files detected. Install: pip install archai-mcp[javascript]
 ```
 

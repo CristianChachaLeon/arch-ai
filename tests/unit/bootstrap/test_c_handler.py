@@ -312,3 +312,79 @@ class TestCppLangHandlerParse:
 
         assert parsed.language == "cpp"
         assert "MyOtherClass" in parsed.classes
+
+    def test_parse_cpp_with_namespace_function(self, tmp_path):
+        """Test parsing C++ with namespaced functions — covers qualified_identifier."""
+        cpp_file = tmp_path / "ns.cpp"
+        cpp_file.write_text(
+            "namespace ns {\n"
+            "    void func() {}\n"
+            "}\n"
+            "\n"
+            "void ns::MyClass::method() {}\n"
+            "\n"
+            "int main() { return 0; }\n"
+        )
+        parsed = self.handler.parse(cpp_file)
+        assert parsed.language == "cpp"
+        assert "func" in parsed.functions
+        assert "main" in parsed.functions
+        assert "MyClass::method" in parsed.functions
+
+    def test_parse_cpp_with_struct(self, tmp_path):
+        """Test parsing C++ with struct — covers struct_specifier branch."""
+        cpp_file = tmp_path / "struct.cpp"
+        cpp_file.write_text(
+            "struct Point {\n" "    int x;\n" "};\n" "\n" "int main() { return 0; }\n"
+        )
+        parsed = self.handler.parse(cpp_file)
+        assert parsed.language == "cpp"
+        assert "Point" in parsed.classes
+
+
+class TestGetCParserImportError:
+    """Tests for _get_c_parser() ImportError branch."""
+
+    @staticmethod
+    def test_get_c_parser_raises_without_tree_sitter_c():
+        import builtins
+        import sys
+        from unittest.mock import patch
+        from archai.bootstrap.c_handler import _get_c_parser
+
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "tree_sitter_c":
+                raise ImportError("No module named tree_sitter_c")
+            return original_import(name, *args, **kwargs)
+
+        with patch.dict(sys.modules):
+            sys.modules.pop("tree_sitter_c", None)
+            with patch("builtins.__import__", side_effect=mock_import):
+                with pytest.raises(ImportError, match="tree-sitter-c"):
+                    _get_c_parser()
+
+
+class TestGetCppParserImportError:
+    """Tests for _get_cpp_parser() ImportError branch."""
+
+    @staticmethod
+    def test_get_cpp_parser_raises_without_tree_sitter_cpp():
+        import builtins
+        import sys
+        from unittest.mock import patch
+        from archai.bootstrap.c_handler import _get_cpp_parser
+
+        original_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name == "tree_sitter_cpp":
+                raise ImportError("No module named tree_sitter_cpp")
+            return original_import(name, *args, **kwargs)
+
+        with patch.dict(sys.modules):
+            sys.modules.pop("tree_sitter_cpp", None)
+            with patch("builtins.__import__", side_effect=mock_import):
+                with pytest.raises(ImportError, match="tree-sitter-cpp"):
+                    _get_cpp_parser()
