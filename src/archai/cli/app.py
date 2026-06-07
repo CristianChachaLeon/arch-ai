@@ -36,11 +36,17 @@ def main(
 
 
 @app.command()
-def mcp():
+def serve():
     """Start ArchAI in MCP server mode (stdio, for AI agents)."""
     from archai.mcp_server import mcp as mcp_app
 
     mcp_app.run(transport="stdio")
+
+
+@app.command(deprecated=True)
+def mcp():
+    """Alias for 'archai serve'. Use 'archai serve' instead."""
+    serve()
 
 
 @app.command()
@@ -85,7 +91,7 @@ def init(
 
     existing.setdefault("mcp", {})["archai"] = {
         "type": "local",
-        "command": ["archai", "mcp"],
+        "command": ["archai", "serve"],
         "enabled": True,
     }
 

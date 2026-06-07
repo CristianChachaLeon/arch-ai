@@ -70,4 +70,4 @@ clean:
 	find . -type f -name "*.pyc" -delete 2>/dev/null || true
 
 run:
-	@echo "Use 'archai start' or 'archai mcp' instead. See 'archai --help'."
+	@echo "Use 'archai serve' instead. See 'archai --help'."

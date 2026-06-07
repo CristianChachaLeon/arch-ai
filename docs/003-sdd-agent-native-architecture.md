@@ -118,7 +118,8 @@ The `start` and `ask` commands exist so a **human** can use archai from the term
 
 ```text
 archai init    → Configure the project for OpenCode
-archai mcp     → MCP server (called by OpenCode automatically)
+archai serve   → MCP server (called by OpenCode automatically)
+archai mcp     → Alias for `archai serve` (deprecated)
 ```
 
 Two commands. That's the entire product surface.
@@ -372,7 +373,8 @@ BEFORE (v0.2.0):                    AFTER (v0.3.0):
 - `archai start` → **Removed**. archai is an MCP server — humans don't call tools.
 - `archai ask` → **Removed**. Only agents consume architecture context.
 - `archai init` → **Kept**. The user's entry point.
-- `archai mcp` → **Kept**. The interface for OpenCode.
+- `archai serve` → **Canonical**. The interface for OpenCode.
+- `archai mcp` → **Alias**. Deprecated, kept for backward compatibility.
 
 The CLI output module (`cli/output.py`) is also removed — no human-facing output is needed.
 

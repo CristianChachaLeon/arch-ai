@@ -93,7 +93,10 @@ archai ask "query" [repo_path]
 # Default: cwd. Optional --repo for other directories.
 
 # MCP server mode (stdio, for agent integration)
-archai mcp
+archai serve
+
+# Deprecated alias (backward compat)
+archai mcp       # same as 'archai serve'
 ```
 
 **Auto-cache behavior**: `archai ask` checks for `.archai/cache.json`. If missing or stale (hash mismatch), it transparently runs `archai start` before answering. The user never needs to run `archai start` manually — but can if they want to pre-process.
@@ -312,7 +315,8 @@ archai = "archai.cli.app:app"  # NEW — CLI entry point
 - [ ] `archai ask "query"` returns architecture context without specifying repo
 - [ ] `archai ask "query" --repo /other/path` works for other repos
 - [ ] `archai ask "query" --json` outputs machine-readable JSON
-- [ ] `archai mcp` starts MCP server and exposes 3 tools
+- [ ] `archai serve` starts MCP server and exposes 3 tools
+- [ ] `archai mcp` is an alias (deprecated, backward compat)
 - [ ] OpenCode discovers and calls ArchAI MCP tools
 - [ ] Agent can validate changes and get blast radius automatically
 - [ ] All 237 existing tests pass
