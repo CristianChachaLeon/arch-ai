@@ -94,5 +94,108 @@ def init(
     typer.echo(typer.style("✓ Configured archai MCP server in .opencode.json", fg="green"))
 
 
+@app.command()
+def analyze(
+    repo_path: str = typer.Argument(".", help="Path to the repository to analyze"),
+    clusters: bool = typer.Option(
+        True, "--clusters/--no-clusters", help="Show cluster information"
+    ),
+    deps: bool = typer.Option(True, "--deps/--no-deps", help="Show dependency edges"),
+    functions: bool = typer.Option(
+        True, "--functions/--no-functions", help="Show functions and classes"
+    ),
+):
+    """Analyze a repository and show its architecture."""
+    import asyncio
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.tree import Tree
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    with console.status(f"[bold green]Analyzing {repo.name}..."):
+        try:
+            result = asyncio.run(ArchaiMiddleware().process(str(repo)))
+        except Exception as e:
+            console.print(f"\n[red]✗ Error analyzing repository:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    # Summary
+    summary = Table.grid(padding=(0, 2))
+    summary.add_column(style="bold cyan")
+    summary.add_column(style="white")
+    summary.add_row("Files", str(result.file_count))
+    summary.add_row("Dependencies", str(result.edge_count))
+    summary.add_row("Clusters", str(result.cluster_count))
+
+    console.print()
+    console.print(Panel(summary, title=f"[bold]📊 {repo.name} — Architecture Overview[/bold]"))
+    console.print()
+
+    # Dependencies tree
+    if deps and result.file_count > 0:
+        dep_tree = Tree(f"📦 [bold]Dependency Graph ({result.edge_count} edges)[/bold]")
+        for node in sorted(result.graph.graph.nodes()):
+            n = result.graph.get_node(node)
+            if n and n.imports:
+                branch = dep_tree.add(f"  📄 [bold]{node}[/bold]")
+                for imp in n.imports:
+                    branch.add(f"  └> {imp}")
+
+        if dep_tree.children:
+            console.print(dep_tree)
+            console.print()
+
+    # Clusters
+    if clusters and result.cluster_count > 0:
+        console.print(f"[bold]📁 Clusters ({result.cluster_count})[/bold]")
+        cluster_table = Table(show_header=True, header_style="bold magenta")
+        cluster_table.add_column("Cluster", style="cyan")
+        cluster_table.add_column("Files", style="white")
+        cluster_table.add_column("Key Files", style="green")
+
+        for cname, files in sorted(result.clusters.items()):
+            # Show the most "connected" files as key files
+            key_files = sorted(files)[:3]
+            key_str = ", ".join(key_files)
+            if len(files) > 3:
+                key_str += f" ... and {len(files) - 3} more"
+            cluster_table.add_row(cname, str(len(files)), key_str)
+
+        console.print(cluster_table)
+        console.print()
+
+    # Functions per file (optional)
+    if functions and result.file_count > 0:
+        console.print("[bold]🔧 Functions & Classes[/bold]")
+        func_table = Table(show_header=True, header_style="bold magenta")
+        func_table.add_column("File", style="cyan")
+        func_table.add_column("Functions", style="white")
+        func_table.add_column("Classes", style="yellow")
+
+        for node in sorted(result.graph.graph.nodes()):
+            n = result.graph.get_node(node)
+            if n and (n.functions or n.classes):
+                funcs = ", ".join(n.functions[:5]) if n.functions else "—"
+                if len(n.functions) > 5:
+                    funcs += " ..."
+                cls = ", ".join(n.classes[:3]) if n.classes else "—"
+                if len(n.classes) > 3:
+                    cls += " ..."
+                func_table.add_row(node, funcs, cls)
+
+        console.print(func_table)
+        console.print()
+
+
 if __name__ == "__main__":
     app()

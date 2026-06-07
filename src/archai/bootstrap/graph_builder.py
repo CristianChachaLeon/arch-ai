@@ -152,8 +152,13 @@ def build_graph(file_nodes: List[FileNode]) -> FileGraph:
     # by dependency_resolver before calling build_graph
     for node in file_nodes:
         for imp in node.imports:
-            # Skip self-imports and unresolved imports
-            if imp != node.path and imp in files_by_name:
+            if imp == "external":
+                if "external" not in files_by_name:
+                    ext_node = FileNode(path="external", imports=[], functions=[], classes=[])
+                    file_graph.add_node(ext_node)
+                    files_by_name["external"] = ext_node
+                graph.add_edge(node.path, "external")
+            elif imp != node.path and imp in files_by_name:
                 graph.add_edge(node.path, imp)
 
     return file_graph

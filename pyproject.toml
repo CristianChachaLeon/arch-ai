@@ -37,6 +37,8 @@ Documentation = "https://github.com/CristianChachaLeon/arch-ai#readme"
 Issues = "https://github.com/CristianChachaLeon/arch-ai/issues"
 
 [project.optional-dependencies]
+c = ["tree-sitter-c>=0.20"]
+cpp = ["tree-sitter-cpp>=0.20"]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -46,6 +48,8 @@ dev = [
     "ruff>=0.1.0",
     "mypy>=1.0.0",
     "pre-commit>=3.0.0",
+    "tree-sitter-c>=0.20",
+    "tree-sitter-cpp>=0.20",
 ]
 
 [project.scripts]

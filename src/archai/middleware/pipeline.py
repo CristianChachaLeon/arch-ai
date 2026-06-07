@@ -18,15 +18,13 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from archai.bootstrap import (
-    discover_python_files,
-    parse_python_file,
-    get_imports,
-    get_functions,
-    get_classes,
-    resolve_imports,
+    discover_files,
     FileNode,
     FileGraph,
     build_graph,
+    detect_languages,
+    ParsedFile,
+    LangHandler,
 )
 from archai.inference.clustering import cluster_files
 from archai.inference.labeler import LabeledCluster, label_clusters
@@ -95,53 +93,98 @@ class ArchaiMiddleware:
         """Run the bootstrapping pipeline.
 
         Steps:
-        1. File Discovery - find all .py files
-        2. AST Parsing - extract imports, functions, classes
-        3. Dependency Resolution - resolve imports to relative paths
+        1. Language Detection - detect which languages are used
+        2. File Discovery + AST Parsing (per language)
+        3. Dependency Resolution (second pass)
         4. Graph Building - create NetworkX graph
         """
         logger.info("Running bootstrap pipeline...")
-
-        # Step 1: File Discovery
         repo = Path(repo_path)
-        files = discover_python_files(repo)
-        logger.debug(f"Discovered {len(files)} Python files")
 
-        # Step 2: AST Parsing
-        file_nodes: List[FileNode] = []
-        errors: List[tuple[str, str]] = []
+        if not repo.is_dir():
+            raise ValueError(f"Path is not a directory: {repo}")
 
-        for f in files:
-            try:
-                tree = parse_python_file(f)
-                imports = get_imports(tree)
-                functions = get_functions(tree)
-                classes = get_classes(tree)
+        # Step 1: Detect languages
+        handlers = detect_languages(repo)
+        if not handlers:
+            logger.warning(f"No known languages detected in {repo}")
+            return build_graph([])
 
-                rel_path = str(f.relative_to(repo))
-                node = FileNode(
-                    path=rel_path,
-                    imports=imports,
-                    functions=functions,
-                    classes=classes,
+        # Build extension -> handler mapping for resolution
+        handler_by_ext: dict[str, LangHandler] = {}
+        for h in handlers:
+            for ext in h.extensions:
+                if ext in handler_by_ext:
+                    logger.warning(
+                        "Extension %s already registered by %s, skipping %s",
+                        ext,
+                        handler_by_ext[ext].language,
+                        h.language,
+                    )
+                    continue
+                handler_by_ext[ext] = h
+
+        # Step 2-3: Discover + Parse files for each language
+        all_parsed: list[ParsedFile] = []
+        all_file_paths: set[str] = set()
+        errors_count = 0
+
+        for handler in handlers:
+            files = discover_files(repo, handler.extensions, handler.excluded_dirs)
+
+            for f in files:
+                try:
+                    parsed = handler.parse(f)
+                    rel_path = str(f.relative_to(repo))
+                    parsed.path = rel_path  # Use relative path for resolution
+                    all_parsed.append(parsed)
+                    all_file_paths.add(rel_path)
+
+                except (SyntaxError, UnicodeDecodeError, OSError) as e:
+                    errors_count += 1
+                    logger.warning(f"Failed to parse {f.name}: {e}")
+                except Exception:
+                    logger.exception("Unexpected bootstrap failure while parsing %s", f)
+                    raise
+
+        logger.debug("Parsed %d files with %d errors", len(all_parsed), errors_count)
+
+        # Step 4: Resolve imports (second pass — needs all parsed files)
+        file_nodes: list[FileNode] = []
+        for parsed in all_parsed:
+            ext = Path(parsed.path).suffix
+            h = handler_by_ext.get(ext)
+            if h is None:
+                logger.warning(f"No handler for extension {ext} in {parsed.path}")
+                file_nodes.append(
+                    FileNode(
+                        path=parsed.path,
+                        imports=[],
+                        functions=parsed.functions,
+                        classes=parsed.classes,
+                    )
                 )
-                file_nodes.append(node)
+                continue
 
-            except (SyntaxError, UnicodeDecodeError, OSError) as e:
-                errors.append((f.name, str(e)))
-                logger.warning(f"Failed to parse {f.name}: {e}")
-            except Exception:
-                logger.exception("Unexpected bootstrap failure while parsing %s", f)
-                raise
+            resolved_imports: list[str] = []
+            for imp in parsed.imports:
+                resolved = h.resolve_import(imp, parsed.path, all_file_paths, repo)
+                if resolved:
+                    resolved_imports.append(resolved)
 
-        logger.debug(f"Parsed {len(file_nodes)} files, {len(errors)} errors")
+            file_nodes.append(
+                FileNode(
+                    path=parsed.path,
+                    imports=resolved_imports,
+                    functions=parsed.functions,
+                    classes=parsed.classes,
+                )
+            )
 
-        # Step 3: Dependency Resolution
-        resolved_nodes = resolve_imports(file_nodes)
-        logger.debug(f"Resolved imports for {len(resolved_nodes)} files")
+        logger.debug(f"Resolved imports for {len(file_nodes)} files")
 
-        # Step 4: Graph Building
-        graph = build_graph(resolved_nodes)
+        # Step 5: Graph Building
+        graph = build_graph(file_nodes)
         logger.debug(f"Built graph with {graph.graph.number_of_nodes()} nodes")
 
         return graph
