@@ -355,3 +355,21 @@ class TestInit:
         config = json.loads(config_file.read_text())
         assert "other-server" in config["mcp"]
         assert "archai" in config["mcp"]
+
+
+class TestBlastCommand:
+    """Tests for the ``blast`` command."""
+
+    def test_blast_help(self):
+        result = runner.invoke(app, ["blast", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Analyze the impact" in plain
+        assert "FILE_PATH" in plain
+        assert "--depth" in plain
+        assert "--json" in plain
+
+    def test_blast_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["blast", "x.py", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output

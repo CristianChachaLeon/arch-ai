@@ -555,5 +555,99 @@ def trace(
         console.print(risk_table)
 
 
+@app.command()
+def blast(
+    file_path: str = typer.Argument(..., help="File to analyze (relative to repo)"),
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+    depth: int = typer.Option(2, "--depth", help="How deep to traverse for transitive dependents"),
+    function: str | None = typer.Option(
+        None, "--function", help="Function name for function-level analysis"
+    ),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Analyze the impact of changing a file.
+
+    Shows direct/transitive dependents and affected subsystems.
+    """
+    import asyncio
+    import json as stdjson
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+    from archai.orchestrator import ArchaiOrchestrator
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    middleware = ArchaiMiddleware()
+    orch = ArchaiOrchestrator(middleware)
+
+    with console.status(f"[bold green]Analyzing blast radius for {file_path}..."):
+        try:
+            result = asyncio.run(
+                orch.get_blast_radius(str(repo), file_path, depth, function_name=function)
+            )
+        except ValueError as e:
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    if json_output:
+        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        return
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]File:[/bold] {result.focus_file}\n"
+            f"[bold]Direct dependents:[/bold] {len(result.direct_dependents)}\n"
+            f"[bold]Transitive dependents:[/bold] {len(result.transitive_dependents)}",
+            title="[bold]💥 Blast Radius[/bold]",
+        )
+    )
+    console.print()
+
+    if result.direct_dependents:
+        console.print("[bold]⬆️ Direct Dependents[/bold]")
+        for f in result.direct_dependents:
+            console.print(f"  {f}")
+        console.print()
+
+    if result.transitive_dependents:
+        console.print("[bold]↗️ Transitive Dependents[/bold]")
+        for f in result.transitive_dependents:
+            console.print(f"  {f}")
+        console.print()
+
+    if result.subsystems_affected:
+        console.print("[bold]📊 Subsystems Affected[/bold]")
+        sub_table = Table(show_header=True, header_style="bold magenta")
+        sub_table.add_column("Subsystem", style="cyan")
+        sub_table.add_column("Files affected", style="white")
+        for subsystem, count in sorted(result.subsystems_affected.items()):
+            sub_table.add_row(subsystem, str(count))
+        console.print(sub_table)
+
+    if result.function_name:
+        console.print(f"\n[bold]Function:[/bold] {result.function_name}")
+        if result.function_dependents:
+            console.print("[bold]Function dependents:[/bold]")
+            for f in result.function_dependents:
+                console.print(f"  {f}")
+        if result.function_dependencies:
+            console.print("[bold]Function dependencies:[/bold]")
+            for f in result.function_dependencies:
+                console.print(f"  {f}")
+
+
 if __name__ == "__main__":
     app()
