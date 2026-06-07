@@ -649,5 +649,120 @@ def blast(
                 console.print(f"  {f}")
 
 
+@app.command()
+def validate(
+    patch_file: str = typer.Argument(..., help="Path to a patch/diff file"),
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Validate proposed code changes against architectural constraints.
+
+    Reads a patch file (diff format), analyzes which files are touched,
+    and checks for constraint violations (blocking I/O, forbidden deps, etc).
+    """
+    import asyncio
+    import json as stdjson
+    from pathlib import Path
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+    from archai.orchestrator import ArchaiOrchestrator
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+    patch_path = Path(patch_file)
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    if not patch_path.exists():
+        console.print(f"[red]✗ Error:[/red] Patch file not found: {patch_path}")
+        raise typer.Exit(code=1)
+
+    # Parse patch file into ChangeItems
+    patch_text = patch_path.read_text()
+    changes = _parse_patch_file(patch_text)
+
+    if not changes:
+        console.print("[yellow]⚠ No changes detected in patch file[/yellow]")
+        raise typer.Exit(code=0)
+
+    middleware = ArchaiMiddleware()
+    orch = ArchaiOrchestrator(middleware)
+
+    with console.status(f"[bold green]Validating {len(changes)} change(s)..."):
+        try:
+            result = asyncio.run(orch.validate_changes(str(repo), changes))
+        except Exception as e:
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    if json_output:
+        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        return
+
+    console.print()
+    if result.valid:
+        console.print(Panel("[bold green]✅ All changes valid[/bold green]", title="Validation"))
+    else:
+        console.print(
+            Panel(
+                f"[bold red]❌ {len(result.violations)} violation(s) found[/bold red]",
+                title="Validation",
+            )
+        )
+        viol_table = Table(show_header=True, header_style="bold magenta")
+        viol_table.add_column("File", style="cyan")
+        viol_table.add_column("Rule", style="yellow")
+        viol_table.add_column("Message", style="white")
+        for v in result.violations:
+            viol_table.add_row(v.file, v.rule, v.message)
+        console.print(viol_table)
+
+
+def _parse_patch_file(patch_text: str) -> list:
+    """Parse a unified diff/patch file into ChangeItem objects."""
+    from archai.models import ChangeItem
+
+    changes: list[ChangeItem] = []
+    current_file = None
+    current_lines: list[str] = []
+
+    for line in patch_text.splitlines():
+        if line.startswith("--- a/"):
+            continue
+        if line.startswith("+++ b/"):
+            # Save previous file's patch
+            if current_file and current_lines:
+                changes.append(
+                    ChangeItem(
+                        file_path=current_file,
+                        patch="\n".join(current_lines),
+                    )
+                )
+            current_file = line[6:]  # strip "+++ b/"
+            current_lines = []
+        elif current_file:
+            current_lines.append(line)
+
+    # Save last file
+    if current_file and current_lines:
+        changes.append(
+            ChangeItem(
+                file_path=current_file,
+                patch="\n".join(current_lines),
+            )
+        )
+
+    return changes
+
+
 if __name__ == "__main__":
     app()
