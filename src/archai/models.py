@@ -5,7 +5,7 @@ These models are used across the orchestrator, CLI, and MCP server.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from pydantic import BaseModel, Field, model_validator
@@ -20,8 +20,8 @@ class LabeledCluster:
     files: list[str]
     async_only: bool = False
     no_blocking_io: bool = False
-    forbidden_dependencies: list[str] = None
-    allowed_dependencies: list[str] = None
+    forbidden_dependencies: list[str] = field(default_factory=list)
+    allowed_dependencies: list[str] = field(default_factory=list)
 
 
 class ClusterEdge(BaseModel):
