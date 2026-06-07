@@ -277,16 +277,17 @@ def file(
     summary.add_row("Functions", str(len(result.functions)))
     summary.add_row("Classes", str(len(result.classes)))
 
-    # Group external imports for display
-    project_imports = [i for i in result.imports if i != "external"]
-    external_count = len(result.imports) - len(project_imports)
-    if external_count:
-        summary.add_row("Imports", f"{len(result.imports)} ({external_count} external)")
-    else:
-        summary.add_row("Imports", str(len(result.imports)))
+    imp_label = str(len(result.imports))
+    if result.external_import_count:
+        imp_label += f" (+{result.external_import_count} external)"
+    summary.add_row("Imports", imp_label)
 
     summary.add_row("Dependents", str(len(result.dependents)))
-    summary.add_row("Dependencies", str(len(result.dependencies)))
+
+    dep_label = str(len(result.dependencies))
+    if result.external_dependency_count:
+        dep_label += f" (+{result.external_dependency_count} external)"
+    summary.add_row("Dependencies", dep_label)
 
     console.print()
     console.print(Panel(summary, title=f"[bold]📄 {result.file_path}[/bold]"))
@@ -319,10 +320,12 @@ def file(
         console.print(", ".join(result.classes))
         console.print()
 
-    # Imports (only non-external)
-    if project_imports:
-        console.print(f"[bold]📥 Project imports ({len(project_imports)})[/bold]")
-        for imp in project_imports:
+    # Imports (only project files)
+    if result.imports:
+        total = len(result.imports)
+        ext = f" + {result.external_import_count} external" if result.external_import_count else ""
+        console.print(f"[bold]📥 Imports ({total}{ext})[/bold]")
+        for imp in result.imports:
             console.print(f"  {imp}")
         console.print()
 
@@ -336,17 +339,15 @@ def file(
         console.print()
 
     # Dependencies
-    if result.dependencies:
-        # Group external in dependencies too
-        project_deps = [d for d in result.dependencies if d != "external"]
-        ext_dep_count = len(result.dependencies) - len(project_deps)
-        if ext_dep_count:
-            console.print(
-                f"[bold]⬇️ Dependencies ({len(result.dependencies)}, {ext_dep_count} external)[/bold]"
-            )
-        else:
-            console.print(f"[bold]⬇️ Dependencies ({len(result.dependencies)})[/bold]")
-        for dep in project_deps:
+    if result.dependencies or result.external_dependency_count:
+        total = len(result.dependencies)
+        ext = (
+            f" + {result.external_dependency_count} external"
+            if result.external_dependency_count
+            else ""
+        )
+        console.print(f"[bold]⬇️ Dependencies ({total}{ext})[/bold]")
+        for dep in result.dependencies:
             console.print(f"  {dep}")
 
 

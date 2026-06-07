@@ -158,7 +158,12 @@ class FileDetailResponse(BaseModel):
     functions: list[FunctionDetail] = Field(default_factory=list)
     classes: list[str] = Field(default_factory=list)
     imports: list[str] = Field(default_factory=list)
+    """Project files this file imports (external/system deps excluded)."""
+    external_import_count: int = 0
+    """Number of external/system dependencies (not included in imports)."""
     dependents: list[str] = Field(default_factory=list)
     """Files that depend on this file (import it)."""
     dependencies: list[str] = Field(default_factory=list)
-    """Files this file imports."""
+    """Project files this file depends on (external/system deps excluded)."""
+    external_dependency_count: int = 0
+    """Number of external/system dependencies at file level."""

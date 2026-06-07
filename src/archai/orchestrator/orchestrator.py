@@ -369,14 +369,26 @@ class ArchaiOrchestrator:
                 for fname in node.functions:
                     functions.append(FunctionDetail(name=fname, line=0))
 
+        # Separate external imports from project imports
+        all_imports = sorted(node.imports) if node else []
+        project_imports = [i for i in all_imports if i != "external"]
+        ext_import_count = len(all_imports) - len(project_imports)
+
+        # Separate external dependencies from project dependencies
+        all_deps = sorted(dependencies) if dependencies else []
+        project_deps = [d for d in all_deps if d != "external"]
+        ext_dep_count = len(all_deps) - len(project_deps)
+
         return FileDetailResponse(
             file_path=file_path,
             cluster=cluster,
             functions=functions,
             classes=sorted(node.classes) if node else [],
-            imports=sorted(node.imports) if node else [],
+            imports=project_imports,
+            external_import_count=ext_import_count,
             dependents=dependents,
-            dependencies=dependencies,
+            dependencies=project_deps,
+            external_dependency_count=ext_dep_count,
         )
 
     async def _get_pipeline_result(self, repo_path: str, force: bool = False) -> PipelineResult:
