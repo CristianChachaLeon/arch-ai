@@ -222,6 +222,9 @@ def analyze(
 def file(
     file_path: str = typer.Argument(..., help="Path to the file to analyze (relative to repo)"),
     repo_path: str = typer.Argument(".", help="Path to the repository"),
+    json_output: bool = typer.Option(
+        False, "--json", help="Output as JSON instead of pretty-print"
+    ),
 ):
     """Get detailed analysis of a single file.
 
@@ -229,6 +232,7 @@ def file(
     imports, dependents, and dependencies.
     """
     import asyncio
+    import json as stdjson
 
     from rich.console import Console
     from rich.table import Table
@@ -251,9 +255,18 @@ def file(
         try:
             result = asyncio.run(orch.get_file_detail(str(repo), file_path))
         except ValueError as e:
-            console.print(f"\n[red]✗ Error:[/red] {e}")
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error:[/red] {e}")
             raise typer.Exit(code=1)
 
+    # JSON output
+    if json_output:
+        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        return
+
+    # Pretty-print
     # Summary
     summary = Table.grid(padding=(0, 2))
     summary.add_column(style="bold cyan")
@@ -263,7 +276,15 @@ def file(
         summary.add_row("Cluster", result.cluster)
     summary.add_row("Functions", str(len(result.functions)))
     summary.add_row("Classes", str(len(result.classes)))
-    summary.add_row("Imports", str(len(result.imports)))
+
+    # Group external imports for display
+    project_imports = [i for i in result.imports if i != "external"]
+    external_count = len(result.imports) - len(project_imports)
+    if external_count:
+        summary.add_row("Imports", f"{len(result.imports)} ({external_count} external)")
+    else:
+        summary.add_row("Imports", str(len(result.imports)))
+
     summary.add_row("Dependents", str(len(result.dependents)))
     summary.add_row("Dependencies", str(len(result.dependencies)))
 
@@ -298,10 +319,10 @@ def file(
         console.print(", ".join(result.classes))
         console.print()
 
-    # Imports
-    if result.imports:
-        console.print(f"[bold]📥 Imports ({len(result.imports)})[/bold]")
-        for imp in result.imports:
+    # Imports (only non-external)
+    if project_imports:
+        console.print(f"[bold]📥 Project imports ({len(project_imports)})[/bold]")
+        for imp in project_imports:
             console.print(f"  {imp}")
         console.print()
 
@@ -316,10 +337,16 @@ def file(
 
     # Dependencies
     if result.dependencies:
-        console.print(
-            f"[bold]⬇️ Dependencies ({len(result.dependencies)}) — files this imports[/bold]"
-        )
-        for dep in result.dependencies:
+        # Group external in dependencies too
+        project_deps = [d for d in result.dependencies if d != "external"]
+        ext_dep_count = len(result.dependencies) - len(project_deps)
+        if ext_dep_count:
+            console.print(
+                f"[bold]⬇️ Dependencies ({len(result.dependencies)}, {ext_dep_count} external)[/bold]"
+            )
+        else:
+            console.print(f"[bold]⬇️ Dependencies ({len(result.dependencies)})[/bold]")
+        for dep in project_deps:
             console.print(f"  {dep}")
 
 
