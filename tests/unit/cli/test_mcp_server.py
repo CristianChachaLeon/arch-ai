@@ -260,6 +260,61 @@ class TestGetBlastRadius:
         assert "file not found" in parsed["error"]
 
 
+class TestGetFileDetail:
+    """Tests for the ``get_file_detail`` MCP tool."""
+
+    async def test_returns_file_detail(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        mock_resp = MagicMock()
+        mock_resp.model_dump = MagicMock(
+            return_value={
+                "file_path": "src/core/engine.py",
+                "cluster": "cluster_api",
+                "functions": [
+                    {
+                        "name": "run",
+                        "line": 42,
+                        "calls_internal": ["init"],
+                        "calls_external": ["db_query"],
+                    }
+                ],
+                "classes": ["Engine"],
+                "imports": ["os", "sys"],
+                "dependents": ["src/api/routes.py"],
+                "dependencies": ["src/db/models.py"],
+            }
+        )
+        orch.get_file_detail = AsyncMock(return_value=mock_resp)
+
+        result = await m.get_file_detail("/fake/repo", "src/core/engine.py")
+        parsed = json.loads(result)
+        assert parsed["file_path"] == "src/core/engine.py"
+        assert len(parsed["functions"]) == 1
+        assert parsed["functions"][0]["name"] == "run"
+
+    async def test_file_not_found(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        orch.get_file_detail = AsyncMock(side_effect=ValueError("File 'x.py' not found"))
+
+        result = await m.get_file_detail("/fake/repo", "x.py")
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "not found" in parsed["error"]
+
+    async def test_validates_repo_path(self, mcp_env):
+        m = mcp_env["module"]
+        validate = mcp_env["mock_validate"]
+        orch = mcp_env["mock_orch_instance"]
+        mock_resp = MagicMock()
+        mock_resp.model_dump = MagicMock(return_value={})
+        orch.get_file_detail = AsyncMock(return_value=mock_resp)
+
+        await m.get_file_detail("/fake/repo", "x.py")
+        validate.assert_called_once_with("/fake/repo")
+
+
 class TestValidateRepoPathGuard:
     """Tests for the ``validate_repo_path`` guard in MCP tools."""
 
@@ -288,5 +343,14 @@ class TestValidateRepoPathGuard:
         validate.side_effect = ValueError("repo_path must be within the repo root")
 
         result = await m.get_blast_radius("/etc/passwd", "file.py")
+        parsed = json.loads(result)
+        assert "error" in parsed
+
+    async def test_file_detail_rejects_outside_path(self, mcp_env):
+        m = mcp_env["module"]
+        validate = mcp_env["mock_validate"]
+        validate.side_effect = ValueError("repo_path must be within the repo root")
+
+        result = await m.get_file_detail("/etc/passwd", "x.py")
         parsed = json.loads(result)
         assert "error" in parsed

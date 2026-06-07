@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.4.1 (2026-06-07)
+## 0.5.0 (2026-06-07)
 
-- **Renamed `archai mcp` → `archai serve`** — `mcp` kept as deprecated alias
+- **New MCP tool `get_file_detail`** — detailed per-file analysis (functions, classes, imports, dependents)
+- **New CLI command `archai file <path>`** — same analysis from terminal
+- Fixed pipeline not passing `functions_detail` to FileNode (functions now show in analysis)
 - `archai init` now generates `["archai", "serve"]` in `.opencode.json`
 
 ## 0.4.0 (2026-06-07)

@@ -15,7 +15,9 @@ from archai.models import (
     ChangeItem,
     ClusterEdge,
     ContextPacket,
+    FileDetailResponse,
     FileMetadata,
+    FunctionDetail,
     StructuralContext,
     SubsystemConstraints,
     ValidateChangeResponse,
@@ -319,6 +321,62 @@ class ArchaiOrchestrator:
             direct_dependencies=direct_dependencies,
             transitive_dependents=sorted(transitive),
             subsystems_affected=dict(sorted(subsystems_affected.items())),
+        )
+
+    async def get_file_detail(self, repo_path: str, file_path: str) -> FileDetailResponse:
+        """Get detailed analysis of a single file.
+
+        Returns functions (with calls), classes, imports, dependents,
+        and dependencies for the specified file.
+
+        Args:
+            repo_path: Path to the repository
+            file_path: The file to analyze (relative to repo root)
+
+        Returns:
+            FileDetailResponse with the analysis results
+
+        Raises:
+            ValueError: If file_path is not in the dependency graph
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path)
+        graph = pipeline_result.graph.graph
+
+        if file_path not in graph:
+            raise ValueError(f"File '{file_path}' not found in dependency graph")
+
+        node = pipeline_result.graph.get_node(file_path)
+        cluster = pipeline_result.get_cluster_for_file(file_path)
+
+        dependents = sorted(graph.predecessors(file_path))
+        dependencies = sorted(graph.successors(file_path))
+
+        functions: list[FunctionDetail] = []
+        if node:
+            if node.functions_detail:
+                # Rich detail from tree-sitter (C/C++): name, line, calls
+                for func in node.functions_detail:
+                    functions.append(
+                        FunctionDetail(
+                            name=func.name,
+                            line=func.line,
+                            calls_internal=list(func.calls_internal),
+                            calls_external=list(func.calls_external),
+                        )
+                    )
+            else:
+                # Basic detail from AST (Python): name only
+                for fname in node.functions:
+                    functions.append(FunctionDetail(name=fname, line=0))
+
+        return FileDetailResponse(
+            file_path=file_path,
+            cluster=cluster,
+            functions=functions,
+            classes=sorted(node.classes) if node else [],
+            imports=sorted(node.imports) if node else [],
+            dependents=dependents,
+            dependencies=dependencies,
         )
 
     async def _get_pipeline_result(self, repo_path: str, force: bool = False) -> PipelineResult:

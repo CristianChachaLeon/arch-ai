@@ -218,5 +218,110 @@ def analyze(
         console.print()
 
 
+@app.command()
+def file(
+    file_path: str = typer.Argument(..., help="Path to the file to analyze (relative to repo)"),
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+):
+    """Get detailed analysis of a single file.
+
+    Shows functions (with line numbers and call info), classes,
+    imports, dependents, and dependencies.
+    """
+    import asyncio
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+    from archai.orchestrator import ArchaiOrchestrator
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    middleware = ArchaiMiddleware()
+    orch = ArchaiOrchestrator(middleware)
+
+    with console.status(f"[bold green]Analyzing {repo.name}..."):
+        try:
+            result = asyncio.run(orch.get_file_detail(str(repo), file_path))
+        except ValueError as e:
+            console.print(f"\n[red]✗ Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    # Summary
+    summary = Table.grid(padding=(0, 2))
+    summary.add_column(style="bold cyan")
+    summary.add_column(style="white")
+    summary.add_row("File", result.file_path)
+    if result.cluster:
+        summary.add_row("Cluster", result.cluster)
+    summary.add_row("Functions", str(len(result.functions)))
+    summary.add_row("Classes", str(len(result.classes)))
+    summary.add_row("Imports", str(len(result.imports)))
+    summary.add_row("Dependents", str(len(result.dependents)))
+    summary.add_row("Dependencies", str(len(result.dependencies)))
+
+    console.print()
+    console.print(Panel(summary, title=f"[bold]📄 {result.file_path}[/bold]"))
+    console.print()
+
+    # Functions
+    if result.functions:
+        console.print("[bold]🔧 Functions[/bold]")
+        func_table = Table(show_header=True, header_style="bold magenta")
+        func_table.add_column("Name", style="green")
+        func_table.add_column("Line", style="cyan")
+        func_table.add_column("Calls (internal)", style="yellow")
+        func_table.add_column("Calls (external)", style="blue")
+
+        for func in result.functions:
+            internal = ", ".join(func.calls_internal[:5]) if func.calls_internal else "—"
+            if len(func.calls_internal) > 5:
+                internal += " ..."
+            external = ", ".join(func.calls_external[:5]) if func.calls_external else "—"
+            if len(func.calls_external) > 5:
+                external += " ..."
+            func_table.add_row(func.name, str(func.line), internal, external)
+
+        console.print(func_table)
+        console.print()
+
+    # Classes
+    if result.classes:
+        console.print(f"[bold]📦 Classes/Structs ({len(result.classes)})[/bold]")
+        console.print(", ".join(result.classes))
+        console.print()
+
+    # Imports
+    if result.imports:
+        console.print(f"[bold]📥 Imports ({len(result.imports)})[/bold]")
+        for imp in result.imports:
+            console.print(f"  {imp}")
+        console.print()
+
+    # Dependents
+    if result.dependents:
+        console.print(
+            f"[bold]⬆️ Dependents ({len(result.dependents)}) — files that depend on this[/bold]"
+        )
+        for dep in result.dependents:
+            console.print(f"  {dep}")
+        console.print()
+
+    # Dependencies
+    if result.dependencies:
+        console.print(
+            f"[bold]⬇️ Dependencies ({len(result.dependencies)}) — files this imports[/bold]"
+        )
+        for dep in result.dependencies:
+            console.print(f"  {dep}")
+
+
 if __name__ == "__main__":
     app()

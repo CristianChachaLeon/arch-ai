@@ -193,5 +193,29 @@ async def get_blast_radius(
         return json.dumps({"error": str(exc)})
 
 
+@mcp.tool()
+async def get_file_detail(repo_path: str, file_path: str) -> str:
+    """Get detailed analysis of a single file.
+
+    Returns functions (with line numbers and call info), classes,
+    imports, dependents (files that import this file), and
+    dependencies (files this file imports).
+
+    Use this when you need to understand WHAT a file does before
+    modifying it — what functions it defines, what it depends on,
+    and what depends on it.
+
+    Args:
+        repo_path: Absolute path to the repository root
+        file_path: The file to analyze (relative to repo root, e.g. "src/main.c")
+    """
+    try:
+        resolved = validate_repo_path(repo_path)
+        result = await orchestrator.get_file_detail(resolved, file_path)
+        return json.dumps(result.model_dump(), indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")
