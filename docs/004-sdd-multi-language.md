@@ -6,7 +6,7 @@
 |------|--------|
 | **Project** | ArchAI |
 | **Version** | 0.4.0 |
-| **Status** | Proposal |
+| **Status** | Acepted |
 | **Date** | 2026-06-06 |
 | **Supersedes** | Language-specific sections of 001-sdd, 002-sdd, 003-sdd |
 
@@ -59,7 +59,7 @@ archai should detect all languages, parse and resolve dependencies for each, bui
 3. **Shared graph** — all languages feed into the same NetworkX graph
 4. **Leverage tree-sitter** — already a dependency, supports 50+ languages
 5. **Backward compatible** — Python-only repos work without changes
-6. **Progressive enhancement** — start with Python + TypeScript, add more later
+6. **Progressive enhancement** — start with Python + C/C++, add more later
 
 ---
 
@@ -165,6 +165,8 @@ Pipeline._run_bootstrap(repo):
 | JavaScript | `.js`, `.jsx` | `package.json` | tree-sitter-js | **P1** |
 | Go | `.go` | `go.mod` | tree-sitter-go | **P2** |
 | Rust | `.rs` | `Cargo.toml` | tree-sitter-rust | **P2** |
+| C | `.c`, `.h` | `Makefile`, `CMakeLists.txt` | tree-sitter-c | **P1** |
+| C++ | `.cpp`, `.hpp`, `.cc`, `.cxx`, `.hh` | `Makefile`, `CMakeLists.txt` | tree-sitter-cpp | **P1** |
 
 ### 3.2 Python Handler (Refactored)
 
@@ -172,7 +174,19 @@ The current Python-specific code (`ast_parser.py`, `dependency_resolver.py`) is 
 
 This ensures **backward compatibility**: existing Python projects work identically.
 
-### 3.3 TypeScript/JavaScript Handler (P1)
+### 3.3 C/C++ Handler (P1)
+
+Uses tree-sitter-c and tree-sitter-cpp grammars.
+
+**Include Resolution:**
+- **Local includes**: `#include "my_header.h"` → search relative to the including file, then project-wide
+- **System includes**: `#include <stdio.h>` → external (not resolved)
+- **Header mapping**: `.h` files map to `.c` or `.cpp` implementations — both are graph nodes
+- **Project files**: `Makefile`, `CMakeLists.txt`, `compile_commands.json`, `.clang-format`
+
+The handler handles both C and C++ with shared include resolution logic.
+
+### 3.4 TypeScript/JavaScript Handler (P1)
 
 Uses tree-sitter grammars.
 
@@ -182,14 +196,14 @@ Resolver rules:
 - **Bare imports**: `import 'react'` -> external (not resolved)
 - **Index files**: `./components` -> `./components/index.ts`
 
-### 3.4 Go Handler (P2)
+### 3.5 Go Handler (P2)
 
 Resolver rules:
 - `import "pkg/path"` -> local if within module (from `go.mod`), external otherwise
 - Resolved relative to module root
 - No index files
 
-### 3.5 Future Handlers
+### 3.6 Future Handlers
 
 Rust, Java, C#, Ruby — all follow the same `LangHandler` pattern.
 
@@ -254,6 +268,8 @@ javascript = [
     "tree-sitter-javascript>=0.20",
     "tree-sitter-typescript>=0.20",
 ]
+c = ["tree-sitter-c>=0.20"]
+cpp = ["tree-sitter-cpp>=0.20"]
 go = ["tree-sitter-go>=0.20"]
 rust = ["tree-sitter-rust>=0.20"]
 ```
@@ -281,6 +297,8 @@ Warning: TypeScript files detected. Install: pip install archai-mcp[javascript]
 | `src/archai/bootstrap/file_discovery.py` | **Refactored** — generic `discover_files()` |
 | `src/archai/bootstrap/__init__.py` | **Updated** — new exports |
 | `src/archai/middleware/pipeline.py` | **Refactored** — language detection + dispatch |
+| `src/archai/bootstrap/c_handler.py` | **New** — C/C++ handler using tree-sitter |
+| `src/archai/bootstrap/cpp_handler.py` | **New** — C++ handler (or combined with C) |
 | `pyproject.toml` | **Updated** — new optional-dependencies |
 
 ---
@@ -295,20 +313,29 @@ Warning: TypeScript files detected. Install: pip install archai-mcp[javascript]
 4. Update `pipeline.py` to use language detection
 5. Verify all tests pass
 
-### Phase 2: TypeScript/JavaScript Handler
+### Phase 2: C/C++ Handler
+
+1. Add tree-sitter-c and tree-sitter-cpp grammars
+2. Implement CLangHandler + CppLangHandler (or combined CLikeLangHandler)
+3. Include resolution: `#include "local.h"` → project files, `#include <system>` → external
+4. Header-to-source mapping for graph edges
+5. Add tests with sample .c/.cpp/.h fixtures
+6. Integration test: polyglot repo with Python + C
+
+### Phase 3: TypeScript/JavaScript Handler
 
 1. Add tree-sitter JS/TS grammars
 2. Implement `TypeScriptLangHandler`
 3. Add tests with sample fixtures
 4. Integration test: polyglot repo
 
-### Phase 3: Go Handler
+### Phase 4: Go Handler
 
 1. Add tree-sitter-go grammar
 2. Implement `GoLangHandler`
 3. Add tests
 
-### Phase 4: Rust Handler
+### Phase 5: Rust Handler
 
 1. Add tree-sitter-rust grammar
 2. Implement `RustLangHandler`
@@ -325,5 +352,9 @@ Warning: TypeScript files detected. Install: pip install archai-mcp[javascript]
 - [ ] Pipeline auto-detects languages in a repo
 - [ ] JS/TS handler parses and resolves imports correctly
 - [ ] Go handler works for basic cases
+- [ ] C handler parses `.c` and `.h` files correctly
+- [ ] C++ handler parses `.cpp`, `.hpp`, `.cc` files correctly
+- [ ] Include resolution distinguishes local vs system includes
+- [ ] Graph contains C/C++ nodes with proper dependency edges
 - [ ] Unified graph contains nodes from all detected languages
 - [ ] All existing tests still pass
