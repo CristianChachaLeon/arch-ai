@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 (2026-06-07)
+## 0.4.1 (2026-06-07)
 
 - **Renamed `archai mcp` → `archai serve`** — `mcp` kept as deprecated alias
 - `archai init` now generates `["archai", "serve"]` in `.opencode.json`
