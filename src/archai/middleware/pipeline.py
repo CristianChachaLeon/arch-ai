@@ -179,6 +179,7 @@ class ArchaiMiddleware:
                     imports=resolved_imports,
                     functions=parsed.functions,
                     classes=parsed.classes,
+                    functions_detail=parsed.functions_detail,
                 )
             )
 

@@ -139,3 +139,31 @@ class ValidateChangeResponse(BaseModel):
         if not self.valid and not self.violations:
             raise ValueError("valid=False but violations are empty")
         return self
+
+
+class FunctionDetail(BaseModel):
+    """Detail for a single function in a file."""
+
+    name: str
+    line: int
+    calls_internal: list[str] = Field(default_factory=list)
+    calls_external: list[str] = Field(default_factory=list)
+
+
+class FileDetailResponse(BaseModel):
+    """Detailed analysis of a single file."""
+
+    file_path: str
+    cluster: str | None = None
+    functions: list[FunctionDetail] = Field(default_factory=list)
+    classes: list[str] = Field(default_factory=list)
+    imports: list[str] = Field(default_factory=list)
+    """Project files this file imports (external/system deps excluded)."""
+    external_import_count: int = 0
+    """Number of external/system dependencies (not included in imports)."""
+    dependents: list[str] = Field(default_factory=list)
+    """Files that depend on this file (import it)."""
+    dependencies: list[str] = Field(default_factory=list)
+    """Project files this file depends on (external/system deps excluded)."""
+    external_dependency_count: int = 0
+    """Number of external/system dependencies at file level."""

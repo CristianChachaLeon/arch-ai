@@ -72,12 +72,19 @@ def _build_similarity_graph(graph: FileGraph) -> nx.Graph:
 
 
 def _detect_communities(graph: nx.Graph) -> Dict[str, List[str]]:
-    """Find communities using modularity optimization."""
+    """Find communities using modularity optimization.
+
+    The "external" virtual node is excluded from clusters — it's a marker
+    for system dependencies, not a real project file.
+    """
     clusters: Dict[str, List[str]] = {}
 
     for component in greedy_modularity_communities(graph, weight="weight"):
+        files = [f for f in component if f != "external"]
+        if not files:
+            continue
         cluster_id = f"cluster_{len(clusters) + 1}"
-        clusters[cluster_id] = sorted(list(component))
+        clusters[cluster_id] = sorted(files)
 
     return clusters
 
