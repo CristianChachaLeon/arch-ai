@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 import tree_sitter
 
 from archai.bootstrap.language import (
+    FunctionInfo,
     ParsedFile,
     SHARED_EXCLUDED_DIRS,
     register_handler,
@@ -31,6 +32,10 @@ _INCLUDE_QUERY = """
 
 _FUNCTION_QUERY = """
 (function_definition) @function
+"""
+
+_CALL_QUERY = """
+(call_expression function: (identifier) @call)
 """
 
 
@@ -112,6 +117,32 @@ def _extract_classes_from_tree(root_node: Node) -> list[str]:
     return classes
 
 
+def _extract_function_calls(function_node: Node, query_lang: Any) -> list[str]:
+    """Extract function names called within a function definition.
+
+    Uses tree-sitter query to find call_expression nodes and extracts
+    the function name from each call.
+
+    Args:
+        function_node: The function_definition AST node.
+        query_lang: The tree-sitter Language object for query creation.
+
+    Returns:
+        List of called function name strings.
+    """
+    query = tree_sitter.Query(query_lang, _CALL_QUERY)
+    cursor = tree_sitter.QueryCursor(query)
+    calls = cursor.captures(function_node)
+    result: list[str] = []
+    for node in calls.get("call", []):
+        text = node.text
+        if text is not None:
+            name = text.decode("utf-8")
+            if name and name not in result:
+                result.append(name)
+    return result
+
+
 def _do_parse(file: Path, parser: Any, language_name: str = "") -> ParsedFile:
     source = file.read_text("utf-8")
     tree = parser.parse(bytes(source, "utf-8"))
@@ -127,20 +158,44 @@ def _do_parse(file: Path, parser: Any, language_name: str = "") -> ParsedFile:
 
     funcs = _query_captures(root_node, _FUNCTION_QUERY, lang)
     functions: list[str] = []
+    functions_detail: list[FunctionInfo] = []
+    # Build set of all function names in this file for categorizing calls
+    all_func_names: set[str] = set()
+
+    # First pass: extract all function names
     for node in funcs.get("function", []):
         name = _extract_function_name(node)
         if name:
-            functions.append(name)
+            all_func_names.add(name)
+
+    # Second pass: extract calls per function
+    for node in funcs.get("function", []):
+        name = _extract_function_name(node)
+        if not name:
+            continue
+        functions.append(name)
+        called = _extract_function_calls(node, lang)
+        internal = [c for c in called if c in all_func_names]
+        external = [c for c in called if c not in all_func_names]
+        line = node.start_point[0] + 1 if hasattr(node, "start_point") else 0
+        functions_detail.append(
+            FunctionInfo(
+                name=name,
+                line=line,
+                calls_internal=internal,
+                calls_external=external,
+            )
+        )
 
     classes: list[str] = []
-    if language_name == "cpp":
-        # Tree walking avoids tree-sitter query cross-grammar compatibility issues
-        classes = _extract_classes_from_tree(root_node)
+    # Extract struct/class for both C and C++ (struct_specifier works for C too)
+    classes = _extract_classes_from_tree(root_node)
 
     return ParsedFile(
         path=str(file),
         imports=imports,
         functions=functions,
+        functions_detail=functions_detail,
         classes=classes,
         language="",
     )

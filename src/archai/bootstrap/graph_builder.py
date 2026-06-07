@@ -3,6 +3,8 @@
 This module only constructs the graph. Parsing is done by ast_parser.
 """
 
+from dataclasses import dataclass
+
 import networkx as nx
 from typing import List, Dict
 
@@ -23,17 +25,137 @@ class FileNode:
         imports: List[str] = None,
         functions: List[str] = None,
         classes: List[str] = None,
+        functions_detail: list = None,
     ):
         # Normalize path to use forward slashes
         self.path = path.replace("\\", "/")
         self.imports = imports or []
         self.functions = functions or []
         self.classes = classes or []
+        self.functions_detail = functions_detail or []
 
     @property
     def filename(self) -> str:
         """Return just the filename (e.g., '__init__.py')"""
         return self.path.split("/")[-1]
+
+
+@dataclass
+class FunctionNode:
+    """Represents a function node in the function-level dependency graph.
+
+    Attributes:
+        name: Function name.
+        file_path: Path of the file containing this function.
+        calls_internal: Functions called within the same file.
+        calls_external: Functions called in other project files.
+    """
+
+    name: str
+    file_path: str
+    calls_internal: list[str]
+    calls_external: list[str]
+
+
+class FunctionGraph:
+    """Wrapper for a NetworkX directed graph with function metadata.
+
+    Nodes are keyed as '{file_path}::{function_name}'.
+    Edges represent 'caller -> callee' relationships.
+    """
+
+    def __init__(self, graph: nx.DiGraph | None = None):
+        if graph is None:
+            self.graph = nx.DiGraph()
+        else:
+            self.graph = graph
+        self._nodes: dict[str, FunctionNode] = {}
+
+    def get_node(self, key: str) -> FunctionNode | None:
+        return self._nodes.get(key)
+
+    def add_node(self, key: str, node: FunctionNode):
+        self._nodes[key] = node
+        self.graph.add_node(key)
+
+    @property
+    def node_count(self) -> int:
+        return self.graph.number_of_nodes()
+
+    @property
+    def edge_count(self) -> int:
+        return self.graph.number_of_edges()
+
+
+# Minimum number of functions in a file to trigger intra-file analysis
+INTRA_FILE_THRESHOLD = 20
+
+
+def _build_key(file_path: str, function_name: str) -> str:
+    """Build a unique key for a function node."""
+    return f"{file_path}::{function_name}"
+
+
+def build_function_graph(file_nodes: list[FileNode]) -> FunctionGraph:
+    """Build a function-level dependency graph from file nodes.
+
+    Only includes files with more than INTRA_FILE_THRESHOLD functions.
+    Creates nodes for each function and edges for call relationships.
+
+    Args:
+        file_nodes: List of FileNode objects with functions_detail.
+
+    Returns:
+        FunctionGraph with function-level nodes and call edges.
+    """
+    fg = FunctionGraph()
+    all_funcs: dict[str, FunctionNode] = {}
+
+    for fn in file_nodes:
+        if not hasattr(fn, "functions_detail") or not fn.functions_detail:
+            continue
+        if len(fn.functions_detail) <= INTRA_FILE_THRESHOLD:
+            continue
+
+        for func in fn.functions_detail:
+            key = _build_key(fn.path, func.name)
+            node = FunctionNode(
+                name=func.name,
+                file_path=fn.path,
+                calls_internal=list(func.calls_internal),
+                calls_external=list(func.calls_external),
+            )
+            all_funcs[key] = node
+            fg.add_node(key, node)
+
+    for key, node in all_funcs.items():
+        for callee in node.calls_internal:
+            callee_key = _build_key(node.file_path, callee)
+            if callee_key in all_funcs:
+                fg.graph.add_edge(key, callee_key)
+
+        for callee in node.calls_external:
+            for other_key, other_node in all_funcs.items():
+                if other_node.name == callee and other_node.file_path != node.file_path:
+                    fg.graph.add_edge(key, other_key)
+
+    return fg
+
+
+def function_dependents(fg: FunctionGraph, file_path: str, function_name: str) -> list[str]:
+    """Get functions that depend on (call) a given function."""
+    key = _build_key(file_path, function_name)
+    if key not in fg.graph:
+        return []
+    return sorted(fg.graph.predecessors(key))
+
+
+def function_dependencies(fg: FunctionGraph, file_path: str, function_name: str) -> list[str]:
+    """Get functions that a given function depends on (calls)."""
+    key = _build_key(file_path, function_name)
+    if key not in fg.graph:
+        return []
+    return sorted(fg.graph.successors(key))
 
 
 class FileGraph:

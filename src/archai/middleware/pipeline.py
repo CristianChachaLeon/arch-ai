@@ -26,7 +26,8 @@ from archai.bootstrap import (
     ParsedFile,
     LangHandler,
 )
-from archai.inference.clustering import cluster_files
+from archai.bootstrap.graph_builder import build_function_graph
+from archai.inference.clustering import cluster_files, cluster_functions
 from archai.inference.labeler import LabeledCluster, label_clusters
 from archai.inference.llm.base import LLMError, LLMProvider
 
@@ -57,7 +58,15 @@ class ArchaiMiddleware:
         logger.info(f"Processing repository: {repo_path}")
 
         # Step 1-4: Bootstrap
-        graph = self._run_bootstrap(repo_path)
+        file_nodes, graph = self._run_bootstrap(repo_path)
+
+        # Step 4.5: Build function graph + intra-file clustering
+        sub_clusters = {}
+        function_graph = None
+        if file_nodes:
+            function_graph = build_function_graph(file_nodes)
+            if function_graph and function_graph.node_count > 0:
+                sub_clusters = cluster_functions(function_graph)
 
         # Step 5: Inference (clustering)
         clusters = self._run_inference(graph)
@@ -80,16 +89,19 @@ class ArchaiMiddleware:
             edge_count=graph.graph.number_of_edges(),
             cluster_count=len(clusters),
             labeled_clusters=labeled_clusters,
+            sub_clusters=sub_clusters,
+            function_graph=function_graph,
         )
 
         logger.info(
             f"Pipeline complete: {result.file_count} files, "
             f"{result.edge_count} edges, {result.cluster_count} clusters"
+            + (f", {len(sub_clusters)} files with sub-clusters" if sub_clusters else "")
         )
 
         return result
 
-    def _run_bootstrap(self, repo_path: str | Path) -> FileGraph:
+    def _run_bootstrap(self, repo_path: str | Path) -> tuple[list[FileNode], FileGraph]:
         """Run the bootstrapping pipeline.
 
         Steps:
@@ -97,6 +109,9 @@ class ArchaiMiddleware:
         2. File Discovery + AST Parsing (per language)
         3. Dependency Resolution (second pass)
         4. Graph Building - create NetworkX graph
+
+        Returns:
+            Tuple of (file_nodes, graph) so callers can access function-level data.
         """
         logger.info("Running bootstrap pipeline...")
         repo = Path(repo_path)
@@ -108,7 +123,7 @@ class ArchaiMiddleware:
         handlers = detect_languages(repo)
         if not handlers:
             logger.warning(f"No known languages detected in {repo}")
-            return build_graph([])
+            return [], build_graph([])
 
         # Build extension -> handler mapping for resolution
         handler_by_ext: dict[str, LangHandler] = {}
@@ -187,7 +202,7 @@ class ArchaiMiddleware:
         graph = build_graph(file_nodes)
         logger.debug(f"Built graph with {graph.graph.number_of_nodes()} nodes")
 
-        return graph
+        return file_nodes, graph
 
     def _run_inference(self, graph: "FileGraph") -> Dict[str, List[str]]:
         """Run the inference pipeline (clustering).
@@ -218,6 +233,8 @@ class PipelineResult:
         edge_count: int,
         cluster_count: int,
         labeled_clusters: list[LabeledCluster] | None = None,
+        sub_clusters: dict[str, dict[str, list[str]]] | None = None,
+        function_graph=None,
     ):
         self.repo_path = repo_path
         self.graph = graph
@@ -226,6 +243,8 @@ class PipelineResult:
         self.edge_count = edge_count
         self.cluster_count = cluster_count
         self.labeled_clusters = labeled_clusters
+        self.sub_clusters = sub_clusters or {}
+        self.function_graph = function_graph
 
     def get_cluster_for_file(self, file_path: str) -> Optional[str]:
         """Find which cluster a file belongs to."""

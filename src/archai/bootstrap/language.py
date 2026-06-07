@@ -14,6 +14,22 @@ from typing import Protocol, runtime_checkable
 from pydantic import BaseModel
 
 
+class FunctionInfo(BaseModel):
+    """Metadata for a single function extracted from source code.
+
+    Attributes:
+        name: Function name as extracted from AST.
+        line: Source line number where the function definition starts.
+        calls_internal: Functions called within the same file.
+        calls_external: Functions called in other project files (resolved by name).
+    """
+
+    name: str
+    line: int
+    calls_internal: list[str] = []
+    calls_external: list[str] = []
+
+
 class ParsedFile(BaseModel):
     """Result of parsing a single file."""
 
@@ -21,6 +37,7 @@ class ParsedFile(BaseModel):
     imports: list[str]  # Raw import strings
     functions: list[str]
     classes: list[str]
+    functions_detail: list[FunctionInfo] = []
     language: str  # e.g., "python", "c", "cpp"
 
 

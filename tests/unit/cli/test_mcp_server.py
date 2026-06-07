@@ -226,7 +226,7 @@ class TestGetBlastRadius:
         orch.get_blast_radius = AsyncMock(return_value=mock_resp)
 
         await m.get_blast_radius("/fake/repo", "x.py")
-        orch.get_blast_radius.assert_awaited_once_with("/fake/repo", "x.py", 2)
+        orch.get_blast_radius.assert_awaited_once_with("/fake/repo", "x.py", 2, function_name=None)
 
     async def test_custom_depth(self, mcp_env):
         m = mcp_env["module"]
@@ -236,7 +236,7 @@ class TestGetBlastRadius:
         orch.get_blast_radius = AsyncMock(return_value=mock_resp)
 
         await m.get_blast_radius("/fake/repo", "x.py", depth=3)
-        orch.get_blast_radius.assert_awaited_once_with("/fake/repo", "x.py", 3)
+        orch.get_blast_radius.assert_awaited_once_with("/fake/repo", "x.py", 3, function_name=None)
 
     async def test_validates_repo_path(self, mcp_env):
         m = mcp_env["module"]

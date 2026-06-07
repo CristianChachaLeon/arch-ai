@@ -166,7 +166,9 @@ async def validate_code_change(repo_path: str, changes: list[dict]) -> str:
 
 
 @mcp.tool()
-async def get_blast_radius(repo_path: str, file_path: str, depth: int = 2) -> str:
+async def get_blast_radius(
+    repo_path: str, file_path: str, depth: int = 2, function_name: str | None = None
+) -> str:
     """Analyze the impact of changing a file in the dependency graph.
 
     Returns direct/transitive dependents and affected subsystems.
@@ -179,10 +181,13 @@ async def get_blast_radius(repo_path: str, file_path: str, depth: int = 2) -> st
         repo_path: Absolute path to the repository root
         file_path: The file being changed (relative to repo root)
         depth: How deep to traverse for transitive dependents (1-5, default 2)
+        function_name: Optional function name for function-level blast radius analysis
     """
     try:
         resolved = validate_repo_path(repo_path)
-        result = await orchestrator.get_blast_radius(resolved, file_path, depth)
+        result = await orchestrator.get_blast_radius(
+            resolved, file_path, depth, function_name=function_name
+        )
         return json.dumps(result.model_dump(), indent=2)
     except Exception as exc:
         return json.dumps({"error": str(exc)})

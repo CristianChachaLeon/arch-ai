@@ -104,6 +104,9 @@ def analyze(
     functions: bool = typer.Option(
         True, "--functions/--no-functions", help="Show functions and classes"
     ),
+    sub_clusters: bool = typer.Option(
+        True, "--sub-clusters/--no-sub-clusters", help="Show intra-file sub-clusters"
+    ),
 ):
     """Analyze a repository and show its architecture."""
     import asyncio
@@ -194,6 +197,18 @@ def analyze(
                 func_table.add_row(node, funcs, cls)
 
         console.print(func_table)
+        console.print()
+
+    # Sub-clusters (intra-file modules)
+    if result.sub_clusters:
+        console.print("[bold]📦 Intra-File Modules (sub-clusters)[/bold]")
+        for file_path, modules in sorted(result.sub_clusters.items()):
+            sub_tree = Tree(f"📄 [bold]{file_path}[/bold]")
+            for module_name, funcs in sorted(modules.items(), key=lambda x: -len(x[1])):
+                short = ", ".join(funcs[:4])
+                rest = f" ... +{len(funcs)-4}" if len(funcs) > 4 else ""
+                sub_tree.add(f"[cyan]{module_name}[/cyan] ({len(funcs)}): {short}{rest}")
+            console.print(sub_tree)
         console.print()
 
 
