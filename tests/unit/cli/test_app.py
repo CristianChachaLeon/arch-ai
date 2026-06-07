@@ -26,11 +26,15 @@ class TestCliHelp:
     def test_help_shows_commands(self):
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "mcp" in result.output
+        assert "serve" in result.output
         assert "init" in result.output
         # start and ask were removed — archai is MCP-only
         assert "start" not in result.output
         assert "ask" not in result.output
+
+    def test_serve_help(self):
+        result = runner.invoke(app, ["serve", "--help"])
+        assert result.exit_code == 0
 
     def test_mcp_help(self):
         result = runner.invoke(app, ["mcp", "--help"])
@@ -42,10 +46,16 @@ class TestCliHelp:
         assert "PROJECT_DIR" in result.output
 
 
-class TestMcpCommand:
-    """Tests for the ``mcp`` command."""
+class TestServeCommand:
+    """Tests for the ``serve`` command."""
 
-    def test_mcp_invokes_run(self):
+    def test_serve_invokes_run(self):
+        with mock.patch("archai.mcp_server.mcp") as mock_mcp:
+            result = runner.invoke(app, ["serve"])
+            assert result.exit_code == 0
+            mock_mcp.run.assert_called_once_with(transport="stdio")
+
+    def test_mcp_alias_invokes_serve(self):
         with mock.patch("archai.mcp_server.mcp") as mock_mcp:
             result = runner.invoke(app, ["mcp"])
             assert result.exit_code == 0
@@ -63,7 +73,7 @@ class TestInit:
         config = json.loads(config_file.read_text())
         archai_cfg = config["mcp"]["archai"]
         assert archai_cfg["type"] == "local"
-        assert archai_cfg["command"] == ["archai", "mcp"]
+        assert archai_cfg["command"] == ["archai", "serve"]
         assert archai_cfg["enabled"] is True
         # No environment block — archai needs no LLM config
         assert "environment" not in archai_cfg
@@ -88,7 +98,7 @@ class TestInit:
         assert config["data"]["directory"] == ".opencode"
         archai_cfg = config["mcp"]["archai"]
         assert archai_cfg["type"] == "local"
-        assert archai_cfg["command"] == ["archai", "mcp"]
+        assert archai_cfg["command"] == ["archai", "serve"]
         assert archai_cfg["enabled"] is True
 
     def test_skips_if_already_configured(self, tmp_path):

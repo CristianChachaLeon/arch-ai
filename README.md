@@ -42,7 +42,8 @@ opencode .
 | Command | Description |
 |---------|-------------|
 | `archai init` | Configure the project for OpenCode MCP integration |
-| `archai mcp` | Start MCP server (stdio, for AI agents) |
+| `archai serve` | Start MCP server (stdio, for AI agents) |
+| `archai mcp` | Alias for `archai serve` (deprecated) |
 
 That's the entire surface. archai is designed to be used by AI agents through MCP, not by humans in a terminal.
 
