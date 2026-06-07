@@ -15,7 +15,7 @@ from archai.models import (
     SubsystemConstraints,
     ValidateChangeResponse,
 )
-from archai.inference.labeler import LabeledCluster
+from archai.models import LabeledCluster
 from archai.middleware.pipeline import PipelineResult
 
 
@@ -208,7 +208,6 @@ class TestArchaiOrchestrator:
     async def test_get_context_focus_is_semantic_label(self, base_clusters):
         """Focus should be the semantic label from LabeledCluster.name, not the raw cluster ID."""
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
-        from archai.inference.labeler import LabeledCluster
 
         labeled = [
             LabeledCluster(
@@ -246,7 +245,6 @@ class TestArchaiOrchestrator:
 
     async def test_get_context_with_labeled_clusters(self, base_clusters):
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
-        from archai.inference.labeler import LabeledCluster
 
         labeled = [
             LabeledCluster(
@@ -469,7 +467,6 @@ class TestArchaiOrchestrator:
     async def test_constraints_populated_from_labeled_clusters(self, base_clusters):
         """Constraints should be populated from the LabeledCluster matching focus."""
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
-        from archai.inference.labeler import LabeledCluster
 
         labeled = [
             LabeledCluster(

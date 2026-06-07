@@ -1,10 +1,7 @@
 """Tests for the ArchAI Middleware Pipeline."""
 
-from unittest.mock import AsyncMock
-
 import pytest
 
-from archai.inference.labeler import ClusterLabel, LabeledCluster
 from archai.middleware.pipeline import ArchaiMiddleware, PipelineResult
 
 
@@ -122,58 +119,3 @@ def authenticate():
         # discover_python_files raises ValueError for invalid paths
         with pytest.raises(ValueError, match="Path is not a directory"):
             await middleware.process(missing_path)
-
-    async def test_label_clusters_called_when_provider_given(self, temp_repo):
-        """When an LLM provider is passed, label_clusters should be called."""
-        mock_provider = AsyncMock(spec=["generate_structured"])
-        mock_provider.generate_structured = AsyncMock(
-            return_value=ClusterLabel(
-                name="Test Module",
-                description="A test module",
-                reasoning="Test reasoning",
-            )
-        )
-
-        middleware = ArchaiMiddleware(llm_provider=mock_provider)
-        result = await middleware.process(temp_repo)
-
-        mock_provider.generate_structured.assert_awaited()
-        assert result.labeled_clusters is not None
-
-    async def test_labeled_clusters_in_pipeline_result(self, temp_repo):
-        """PipelineResult should contain labeled clusters when provider is given."""
-        mock_provider = AsyncMock(spec=["generate_structured"])
-        mock_provider.generate_structured = AsyncMock(
-            return_value=ClusterLabel(
-                name="Test Module",
-                description="A test module",
-                reasoning="Test reasoning",
-            )
-        )
-
-        middleware = ArchaiMiddleware(llm_provider=mock_provider)
-        result = await middleware.process(temp_repo)
-
-        assert result.labeled_clusters is not None
-        for lc in result.labeled_clusters:
-            assert isinstance(lc, LabeledCluster)
-            assert lc.name
-            assert lc.description
-
-    async def test_labeled_clusters_in_to_dict(self, temp_repo):
-        """to_dict should include cluster_names when labeled clusters exist."""
-        mock_provider = AsyncMock(spec=["generate_structured"])
-        mock_provider.generate_structured = AsyncMock(
-            return_value=ClusterLabel(
-                name="Test Module",
-                description="A test module",
-                reasoning="Test reasoning",
-            )
-        )
-
-        middleware = ArchaiMiddleware(llm_provider=mock_provider)
-        result = await middleware.process(temp_repo)
-        data = result.to_dict()
-
-        assert "cluster_names" in data
-        assert isinstance(data["cluster_names"], dict)

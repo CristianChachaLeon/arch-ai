@@ -28,8 +28,7 @@ from archai.bootstrap import (
 )
 from archai.bootstrap.graph_builder import build_function_graph
 from archai.inference.clustering import cluster_files, cluster_functions
-from archai.inference.labeler import LabeledCluster, label_clusters
-from archai.inference.llm.base import LLMError, LLMProvider
+from archai.models import LabeledCluster
 
 logger = logging.getLogger(__name__)
 
@@ -37,13 +36,8 @@ logger = logging.getLogger(__name__)
 class ArchaiMiddleware:
     """Main middleware that orchestrates the bootstrap + inference pipeline."""
 
-    def __init__(self, llm_provider: LLMProvider | None = None):
-        """Initialize the middleware.
-
-        Args:
-            llm_provider: Optional LLM provider for semantic labeling of clusters.
-        """
-        self.llm_provider = llm_provider
+    def __init__(self):
+        """Initialize the middleware."""
         logger.info("ArchaiMiddleware initialized")
 
     async def process(self, repo_path: str | Path) -> PipelineResult:
@@ -71,15 +65,7 @@ class ArchaiMiddleware:
         # Step 5: Inference (clustering)
         clusters = self._run_inference(graph)
 
-        # Step 6: Semantic labeling (optional)
         labeled_clusters = None
-        if self.llm_provider is not None:
-            logger.info("Labeling clusters using LLM...")
-            try:
-                labeled_clusters = await label_clusters(clusters, self.llm_provider)
-                logger.info(f"Labeled {len(labeled_clusters)} clusters")
-            except LLMError:
-                logger.exception("Failed to label clusters, proceeding without labels")
 
         result = PipelineResult(
             repo_path=str(repo_path),

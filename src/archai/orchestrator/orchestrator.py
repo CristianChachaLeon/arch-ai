@@ -25,7 +25,7 @@ from archai.bootstrap.graph_builder import (
     function_dependents as get_function_dependents,
     function_dependencies as get_function_dependencies,
 )
-from archai.inference.labeler import LabeledCluster
+from archai.models import LabeledCluster
 from archai.middleware.pipeline import PipelineResult
 from archai.orchestrator.focus_resolver import resolve_focus
 

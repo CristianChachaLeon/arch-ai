@@ -26,7 +26,7 @@ logger = logging.getLogger("archai.mcp")
 # No LLM provider needed — archai is a pure structural analysis engine.
 # The MCP server returns raw structural data (clusters, edges, dependencies).
 # OpenCode's agent uses its own LLM to interpret the data and infer constraints.
-middleware = ArchaiMiddleware(llm_provider=None)
+middleware = ArchaiMiddleware()
 orchestrator = ArchaiOrchestrator(middleware)
 
 mcp = FastMCP("archai")
