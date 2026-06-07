@@ -39,6 +39,7 @@ class ParsedFile(BaseModel):
     classes: list[str]
     functions_detail: list[FunctionInfo] = []
     language: str  # e.g., "python", "c", "cpp"
+    global_vars: list[dict] = []  # [{name, type, line, is_static}]
 
 
 @runtime_checkable

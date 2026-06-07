@@ -217,5 +217,24 @@ async def get_file_detail(repo_path: str, file_path: str) -> str:
         return json.dumps({"error": str(exc)})
 
 
+@mcp.tool()
+async def get_shared_state(repo_path: str, variable_filter: str | None = None) -> str:
+    """Analyze shared global state in a repository.
+
+    Returns global variables with their declaration locations.
+    Use this to understand coupling through global state.
+
+    Args:
+        repo_path: Absolute path to the repository root
+        variable_filter: Optional filter by variable name (substring match)
+    """
+    try:
+        resolved = validate_repo_path(repo_path)
+        result = await orchestrator.get_shared_state(resolved, variable_filter)
+        return json.dumps(result.model_dump(), indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

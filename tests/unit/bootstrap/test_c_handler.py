@@ -346,6 +346,148 @@ class TestCppLangHandlerParse:
         assert "Point" in parsed.classes
 
 
+class TestGlobalVarExtraction:
+    """Tests for global variable extraction in C files."""
+
+    def setup_method(self):
+        pytest.importorskip("tree_sitter_c")
+        from archai.bootstrap.c_handler import _extract_file_scope_vars as _extract
+        from archai.bootstrap.c_handler import _get_c_parser
+
+        self.parser = _get_c_parser()
+        self._extract = _extract
+
+    def test_extract_basic_globals(self, tmp_path):
+        """Test extracting simple global variable declarations."""
+        c_file = tmp_path / "test.c"
+        c_file.write_text(
+            "#include <stdio.h>\n"
+            "\n"
+            "int cfg;\n"
+            "static int debug_flag;\n"
+            "char buffer[256];\n"
+            "\n"
+            "int main() {\n"
+            "    return 0;\n"
+            "}\n"
+        )
+        tree = self.parser.parse(bytes(c_file.read_text(), "utf-8"))
+        root = tree.root_node
+        lang = self.parser.language
+
+        vars_found = self._extract(root, lang)
+        names = {v["name"] for v in vars_found}
+
+        assert "cfg" in names
+        assert "debug_flag" in names
+        assert "buffer" in names
+        # Function declarations and identifiers in function bodies should not appear
+        assert "main" not in names
+        assert "stdio" not in names
+
+    def test_extract_static_var(self, tmp_path):
+        """Test that static globals are correctly marked."""
+        c_file = tmp_path / "test.c"
+        c_file.write_text("static int hidden_counter = 0;\n" "int main() { return 0; }\n")
+        tree = self.parser.parse(bytes(c_file.read_text(), "utf-8"))
+        root = tree.root_node
+        lang = self.parser.language
+
+        vars_found = self._extract(root, lang)
+        static_vars = [v for v in vars_found if v.get("is_static")]
+        assert len(static_vars) == 1
+        assert static_vars[0]["name"] == "hidden_counter"
+
+    def test_extract_with_function_declaration_excluded(self, tmp_path):
+        """Test that function declarations are excluded from global vars."""
+        c_file = tmp_path / "test.c"
+        c_file.write_text(
+            "int helper(int x);\n"  # function declaration
+            "int global_val;\n"  # global variable
+            "int main() { return 0; }\n"
+        )
+        tree = self.parser.parse(bytes(c_file.read_text(), "utf-8"))
+        root = tree.root_node
+        lang = self.parser.language
+
+        vars_found = self._extract(root, lang)
+        names = {v["name"] for v in vars_found}
+
+        assert "global_val" in names
+        assert "helper" not in names
+        assert "main" not in names
+
+    def test_extract_var_access_writes(self, tmp_path):
+        """Test _extract_var_access detects writes to global variables."""
+        from archai.bootstrap.c_handler import _extract_var_access
+
+        c_file = tmp_path / "test.c"
+        c_file.write_text(
+            "int counter;\n" "int main() {\n" "    counter = 42;\n" "    return 0;\n" "}\n"
+        )
+        tree = self.parser.parse(bytes(c_file.read_text(), "utf-8"))
+        root = tree.root_node
+        lang = self.parser.language
+
+        vars_found = self._extract(root, lang)
+        global_names = {g["name"] for g in vars_found}
+
+        # Find the main function node
+        for child in root.children:
+            if child.type == "function_definition":
+                writes, reads = _extract_var_access(child, lang, global_names)
+                assert len(writes) == 1
+                assert writes[0]["name"] == "counter"
+                assert len(reads) == 0
+                break
+
+    def test_extract_var_access_reads(self, tmp_path):
+        """Test _extract_var_access detects reads of global variables."""
+        from archai.bootstrap.c_handler import _extract_var_access
+
+        c_file = tmp_path / "test.c"
+        c_file.write_text(
+            "int debug_flag;\n"
+            "int main() {\n"
+            "    if (debug_flag) { return 1; }\n"
+            "    return 0;\n"
+            "}\n"
+        )
+        tree = self.parser.parse(bytes(c_file.read_text(), "utf-8"))
+        root = tree.root_node
+        lang = self.parser.language
+
+        vars_found = self._extract(root, lang)
+        global_names = {g["name"] for g in vars_found}
+
+        for child in root.children:
+            if child.type == "function_definition":
+                writes, reads = _extract_var_access(child, lang, global_names)
+                assert len(reads) == 1
+                assert reads[0]["name"] == "debug_flag"
+                assert len(writes) == 0
+                break
+
+    def test_parse_global_vars_in_pipeline(self, tmp_path):
+        """Test that ParsedFile includes global_vars when parsing."""
+        from archai.bootstrap.c_handler import CLangHandler
+
+        handler = CLangHandler()
+        c_file = tmp_path / "test.c"
+        c_file.write_text(
+            "int global_counter = 0;\n"
+            "static struct settings cfg;\n"
+            "\n"
+            "int main() { return 0; }\n"
+        )
+
+        parsed = handler.parse(c_file)
+        assert len(parsed.global_vars) >= 1
+        names = {g["name"] for g in parsed.global_vars}
+        assert "global_counter" in names
+        assert "main" not in names
+
+
 class TestGetCParserImportError:
     """Tests for _get_c_parser() ImportError branch."""
 

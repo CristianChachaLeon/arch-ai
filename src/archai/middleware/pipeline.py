@@ -163,6 +163,7 @@ class ArchaiMiddleware:
                         imports=[],
                         functions=parsed.functions,
                         classes=parsed.classes,
+                        global_vars=parsed.global_vars,
                     )
                 )
                 continue
@@ -180,6 +181,7 @@ class ArchaiMiddleware:
                     functions=parsed.functions,
                     classes=parsed.classes,
                     functions_detail=parsed.functions_detail,
+                    global_vars=parsed.global_vars,
                 )
             )
 

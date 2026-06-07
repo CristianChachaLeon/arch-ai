@@ -150,6 +150,36 @@ class FunctionDetail(BaseModel):
     calls_external: list[str] = Field(default_factory=list)
 
 
+class VariableAccess(BaseModel):
+    """A function that reads or writes a global variable."""
+
+    function: str
+    file_path: str
+    line: int = 0
+    access_type: str = "read"  # "read" or "write"
+
+
+class SharedVariable(BaseModel):
+    """A global variable and its access pattern."""
+
+    name: str
+    type_hint: str = ""
+    declared_in: str = ""  # file_path
+    line: int = 0
+    is_static: bool = False
+    writers: list[VariableAccess] = Field(default_factory=list)
+    readers: list[VariableAccess] = Field(default_factory=list)
+
+
+class SharedStateResponse(BaseModel):
+    """Complete shared state analysis for a repository."""
+
+    variables: list[SharedVariable] = Field(default_factory=list)
+    total_count: int = 0
+    most_written: list[str] = Field(default_factory=list)
+    most_read: list[str] = Field(default_factory=list)
+
+
 class FileDetailResponse(BaseModel):
     """Detailed analysis of a single file."""
 
