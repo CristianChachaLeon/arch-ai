@@ -143,6 +143,170 @@ def _extract_function_calls(function_node: Node, query_lang: Any) -> list[str]:
     return result
 
 
+def _extract_file_scope_vars(root_node: Node, lang: Any) -> list[dict]:
+    """Extract file-scope (global) variable declarations from C/C++ files.
+
+    Walks direct children of translation_unit to find declarations
+    at file scope (not inside functions or blocks).
+
+    Returns:
+        list of dicts with keys: name, line, is_static
+    """
+    vars_found: list[dict] = []
+
+    def is_function_decl(node: Node) -> bool:
+        """Check if a declaration node is actually a function declaration."""
+        for child in node.children:
+            if child.type == "function_declarator":
+                return True
+            # Recurse into nested declarators (pointer, etc.)
+            if is_function_decl(child):
+                return True
+        return False
+
+    for child in root_node.children:
+        if child.type != "declaration":
+            continue
+
+        if is_function_decl(child):
+            continue
+
+        # Check for 'static' storage class
+        is_static = False
+        for c in child.children:
+            if c.type == "storage_class_specifier":
+                text = c.text
+                if text is not None and text.decode("utf-8") == "static":
+                    is_static = True
+                    break
+
+        # Find variable names in this declaration
+        # Handles: "int cfg;", "int cfg = 0;", "char buf[256];", "int *ptr;"
+        def find_var_names(node: Node) -> list[tuple[Node, str]]:
+            """Find (line_node, name) pairs from a declaration node."""
+            result: list[tuple[Node, str]] = []
+            for c in node.children:
+                if c.type == "init_declarator":
+                    decl_name = c.child_by_field_name("declarator")
+                    if decl_name is not None:
+                        name = _find_first_name_node(decl_name)
+                        if name:
+                            result.append((c, name))
+                elif c.type in ("identifier",):
+                    text = c.text
+                    if text is not None:
+                        name = text.decode("utf-8")
+                        _SKIP_TYPES = frozenset(
+                            {
+                                "int",
+                                "char",
+                                "void",
+                                "float",
+                                "double",
+                                "long",
+                                "short",
+                                "unsigned",
+                                "signed",
+                                "const",
+                                "static",
+                                "extern",
+                                "volatile",
+                                "auto",
+                                "register",
+                            }
+                        )
+                        if name and name not in _SKIP_TYPES:
+                            result.append((c, name))
+                elif c.type in ("array_declarator", "pointer_declarator"):
+                    name = _find_first_name_node(c)
+                    if name:
+                        result.append((c, name))
+            return result
+
+        for line_node, name in find_var_names(child):
+            if name not in [v["name"] for v in vars_found]:
+                line = line_node.start_point[0] + 1 if hasattr(line_node, "start_point") else 0
+                vars_found.append(
+                    {
+                        "name": name,
+                        "line": line,
+                        "is_static": is_static,
+                    }
+                )
+
+    return vars_found
+
+
+def _extract_var_access(
+    func_node: Node,
+    lang: Any,
+    global_names: set[str],
+) -> tuple[list[dict], list[dict]]:
+    """Extract which global variables a function reads and writes.
+
+    Args:
+        func_node: Function definition AST node
+        lang: tree-sitter Language object
+        global_names: Set of known global variable names
+
+    Returns:
+        Tuple of (writes, reads) where each is a list of
+        dicts with keys: name, line
+    """
+    writes: list[dict] = []
+    reads: list[dict] = []
+
+    # Find assignment targets via tree-sitter query
+    assign_query = """
+    (assignment_expression
+      left: (identifier) @target
+    )
+    """
+    try:
+        query = tree_sitter.Query(lang, assign_query)
+        cursor = tree_sitter.QueryCursor(query)
+        assigns = cursor.captures(func_node)
+    except Exception:
+        assigns = {}
+
+    written_vars: set[str] = set()
+    for node in assigns.get("target", []):
+        text = node.text
+        if text is None:
+            continue
+        name = text.decode("utf-8")
+        if name in global_names and name not in written_vars:
+            written_vars.add(name)
+            line = node.start_point[0] + 1 if hasattr(node, "start_point") else 0
+            writes.append({"name": name, "line": line})
+
+    # Walk the function body for identifier references
+    seen: set[str] = set()
+
+    def walk_identifiers(node: Node, depth: int = 0) -> None:
+        if depth > 30:
+            return
+        if node.type == "identifier":
+            text = node.text
+            if text is not None:
+                name = text.decode("utf-8")
+                if name in global_names and name not in seen:
+                    seen.add(name)
+                    if name in written_vars:
+                        # Already counted as a write, but also track as read
+                        # if there's a non-assignment reference
+                        pass
+                    else:
+                        line = node.start_point[0] + 1 if hasattr(node, "start_point") else 0
+                        reads.append({"name": name, "line": line})
+        for child in node.children:
+            walk_identifiers(child, depth + 1)
+
+    walk_identifiers(func_node)
+
+    return writes, reads
+
+
 def _do_parse(file: Path, parser: Any, language_name: str = "") -> ParsedFile:
     source = file.read_text("utf-8")
     tree = parser.parse(bytes(source, "utf-8"))
@@ -191,6 +355,11 @@ def _do_parse(file: Path, parser: Any, language_name: str = "") -> ParsedFile:
     # Extract struct/class for both C and C++ (struct_specifier works for C too)
     classes = _extract_classes_from_tree(root_node)
 
+    # Extract global variable declarations (file-scope)
+    global_vars: list[dict] = []
+    if language_name in ("c", "cpp"):
+        global_vars = _extract_file_scope_vars(root_node, lang)
+
     return ParsedFile(
         path=str(file),
         imports=imports,
@@ -198,6 +367,7 @@ def _do_parse(file: Path, parser: Any, language_name: str = "") -> ParsedFile:
         functions_detail=functions_detail,
         classes=classes,
         language="",
+        global_vars=global_vars,
     )
 
 

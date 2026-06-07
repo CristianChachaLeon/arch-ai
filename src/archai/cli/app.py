@@ -363,5 +363,91 @@ def file(
             console.print(f"  {dep}")
 
 
+@app.command()
+def state(
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+    var: str | None = typer.Option(None, "--var", help="Filter by variable name"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Analyze shared global state in a repository.
+
+    Shows global variables and their declaration locations.
+    Use --var to filter by variable name.
+    """
+    import asyncio
+    import json as stdjson
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+    from archai.orchestrator import ArchaiOrchestrator
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    middleware = ArchaiMiddleware()
+    orch = ArchaiOrchestrator(middleware)
+
+    with console.status(f"[bold green]Analyzing shared state in {repo.name}..."):
+        try:
+            result = asyncio.run(orch.get_shared_state(str(repo), var))
+        except Exception as e:
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error analyzing shared state:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    if json_output:
+        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        return
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]Total:[/bold] {result.total_count} global variables"
+            + (f" (filtered by '{var}')" if var else ""),
+            title="[bold]🌐 Shared State Analysis[/bold]",
+        )
+    )
+    console.print()
+
+    if not result.variables:
+        console.print("[yellow]No global variables found.[/yellow]")
+        return
+
+    var_table = Table(show_header=True, header_style="bold magenta")
+    var_table.add_column("Variable", style="green")
+    var_table.add_column("Declared In", style="cyan")
+    var_table.add_column("Line", style="white")
+    var_table.add_column("Writers", style="yellow")
+    var_table.add_column("Readers", style="blue")
+
+    for v in result.variables:
+        writers = ", ".join(w.function for w in v.writers[:3]) if v.writers else "—"
+        if len(v.writers) > 3:
+            writers += " ..."
+        readers = ", ".join(r.function for r in v.readers[:3]) if v.readers else "—"
+        if len(v.readers) > 3:
+            readers += " ..."
+        var_table.add_row(v.name, v.declared_in, str(v.line), writers, readers)
+
+    console.print(var_table)
+    console.print()
+
+    # Most written/read summary
+    if result.most_written:
+        console.print(f"[bold]✏️ Most written:[/bold] {', '.join(result.most_written)}")
+    if result.most_read:
+        console.print(f"[bold]📖 Most read:[/bold] {', '.join(result.most_read)}")
+    console.print()
+
+
 if __name__ == "__main__":
     app()

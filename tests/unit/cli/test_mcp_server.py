@@ -315,6 +315,70 @@ class TestGetFileDetail:
         validate.assert_called_once_with("/fake/repo")
 
 
+class TestGetSharedState:
+    """Tests for the ``get_shared_state`` MCP tool."""
+
+    async def test_returns_shared_state(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        mock_resp = MagicMock()
+        mock_resp.model_dump = MagicMock(
+            return_value={
+                "variables": [
+                    {
+                        "name": "cfg",
+                        "type_hint": "",
+                        "declared_in": "src/main.c",
+                        "line": 10,
+                        "is_static": False,
+                        "writers": [],
+                        "readers": [],
+                    }
+                ],
+                "total_count": 1,
+                "most_written": [],
+                "most_read": [],
+            }
+        )
+        orch.get_shared_state = AsyncMock(return_value=mock_resp)
+
+        result = await m.get_shared_state("/fake/repo")
+        parsed = json.loads(result)
+        assert parsed["total_count"] == 1
+        assert parsed["variables"][0]["name"] == "cfg"
+
+    async def test_calls_orchestrator_with_filter(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        mock_resp = MagicMock()
+        mock_resp.model_dump = MagicMock(return_value={})
+        orch.get_shared_state = AsyncMock(return_value=mock_resp)
+
+        await m.get_shared_state("/fake/repo", variable_filter="cfg")
+        orch.get_shared_state.assert_awaited_once_with("/fake/repo", "cfg")
+
+    async def test_validates_repo_path(self, mcp_env):
+        m = mcp_env["module"]
+        validate = mcp_env["mock_validate"]
+        orch = mcp_env["mock_orch_instance"]
+        mock_resp = MagicMock()
+        mock_resp.model_dump = MagicMock(return_value={})
+        orch.get_shared_state = AsyncMock(return_value=mock_resp)
+
+        await m.get_shared_state("/some/repo")
+        validate.assert_called_once_with("/some/repo")
+
+    async def test_error_returns_json_error(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        orch.get_shared_state = AsyncMock(side_effect=ValueError("repo not found"))
+
+        result = await m.get_shared_state("/fake/repo")
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "repo not found" in parsed["error"]
+
+
 class TestValidateRepoPathGuard:
     """Tests for the ``validate_repo_path`` guard in MCP tools."""
 

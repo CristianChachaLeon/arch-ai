@@ -18,6 +18,8 @@ from archai.models import (
     FileDetailResponse,
     FileMetadata,
     FunctionDetail,
+    SharedStateResponse,
+    SharedVariable,
     StructuralContext,
     SubsystemConstraints,
     ValidateChangeResponse,
@@ -389,6 +391,56 @@ class ArchaiOrchestrator:
             dependents=dependents,
             dependencies=project_deps,
             external_dependency_count=ext_dep_count,
+        )
+
+    async def get_shared_state(
+        self, repo_path: str, variable_filter: str | None = None
+    ) -> SharedStateResponse:
+        """Get shared state analysis for a repository.
+
+        Returns all global variables with their declaration locations.
+        Optionally filter by variable name.
+
+        Args:
+            repo_path: Path to the repository
+            variable_filter: Optional substring filter for variable name
+
+        Returns:
+            SharedStateResponse with variables, total_count, most_written, most_read
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path)
+
+        all_vars: dict[str, SharedVariable] = {}
+
+        for file_path in pipeline_result.graph.graph.nodes():
+            node = pipeline_result.graph.get_node(file_path)
+            if not node or not node.global_vars:
+                continue
+
+            for gvar in node.global_vars:
+                name = gvar["name"]
+                if name not in all_vars:
+                    all_vars[name] = SharedVariable(
+                        name=name,
+                        declared_in=file_path,
+                        line=gvar.get("line", 0),
+                    )
+
+        variables = list(all_vars.values())
+        if variable_filter:
+            variables = [v for v in variables if variable_filter.lower() in v.name.lower()]
+
+        variables.sort(key=lambda v: v.name)
+
+        return SharedStateResponse(
+            variables=variables,
+            total_count=len(variables),
+            most_written=[
+                v.name for v in sorted(variables, key=lambda v: len(v.writers), reverse=True)[:5]
+            ],
+            most_read=[
+                v.name for v in sorted(variables, key=lambda v: len(v.readers), reverse=True)[:5]
+            ],
         )
 
     async def _get_pipeline_result(self, repo_path: str, force: bool = False) -> PipelineResult:

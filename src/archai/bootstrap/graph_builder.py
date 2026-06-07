@@ -26,6 +26,8 @@ class FileNode:
         functions: List[str] = None,
         classes: List[str] = None,
         functions_detail: list | None = None,
+        global_vars: list | None = None,
+        var_access: dict | None = None,
     ):
         # Normalize path to use forward slashes
         self.path = path.replace("\\", "/")
@@ -33,6 +35,8 @@ class FileNode:
         self.functions = functions or []
         self.classes = classes or []
         self.functions_detail = functions_detail or []
+        self.global_vars = global_vars or []
+        self.var_access = var_access or {}
 
     @property
     def filename(self) -> str:

@@ -62,6 +62,107 @@ class TestServeCommand:
             mock_mcp.run.assert_called_once_with(transport="stdio")
 
 
+class TestStateCommand:
+    """Tests for the ``state`` command."""
+
+    def test_state_help(self):
+        result = runner.invoke(app, ["state", "--help"])
+        assert result.exit_code == 0
+        assert "Analyze shared global state" in result.output
+        assert "--var" in result.output
+        assert "--json" in result.output
+
+    def test_state_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["state", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    def test_state_json_output(self, tmp_path):
+        """Test state command with --json flag using a valid dir."""
+        import json as stdjson
+        from unittest.mock import AsyncMock, patch
+
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+        from archai.middleware.pipeline import PipelineResult
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        file_nodes = [
+            FileNode(
+                path="main.c",
+                imports=[],
+                functions=[],
+                classes=[],
+                global_vars=[
+                    {"name": "debug_mode", "line": 1, "is_static": False},
+                    {"name": "counter", "line": 2, "is_static": True},
+                ],
+            ),
+        ]
+        graph = build_graph(file_nodes)
+        result = PipelineResult(
+            repo_path=str(project),
+            graph=graph,
+            clusters={},
+            file_count=1,
+            edge_count=0,
+            cluster_count=0,
+        )
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware:
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock(return_value=result)
+            result_invoke = runner.invoke(app, ["state", str(project), "--json"])
+            assert result_invoke.exit_code == 0
+            parsed = stdjson.loads(result_invoke.output)
+            assert parsed["total_count"] == 2
+            assert parsed["variables"][0]["name"] == "counter"
+            assert parsed["variables"][1]["name"] == "debug_mode"
+
+    def test_state_pretty_output(self, tmp_path):
+        """Test state command pretty-print with --var filter."""
+        from unittest.mock import AsyncMock, patch
+
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+        from archai.middleware.pipeline import PipelineResult
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        file_nodes = [
+            FileNode(
+                path="main.c",
+                imports=[],
+                functions=[],
+                classes=[],
+                global_vars=[
+                    {"name": "debug_mode", "line": 1, "is_static": False},
+                    {"name": "counter", "line": 2, "is_static": True},
+                ],
+            ),
+        ]
+        graph = build_graph(file_nodes)
+        result = PipelineResult(
+            repo_path=str(project),
+            graph=graph,
+            clusters={},
+            file_count=1,
+            edge_count=0,
+            cluster_count=0,
+        )
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware:
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock(return_value=result)
+            result_invoke = runner.invoke(app, ["state", str(project), "--var", "debug"])
+            assert result_invoke.exit_code == 0
+            assert "debug_mode" in result_invoke.output
+            assert "counter" not in result_invoke.output
+
+
 class TestInit:
     """Tests for the ``init`` command."""
 
