@@ -69,7 +69,8 @@ class LangHandler(Protocol):
             project_root: Absolute path to the repository root
 
         Returns:
-            Resolved relative path, or None if external/unresolvable.
+            Resolved relative path, "external" for cross-language/system/stdlib
+            imports, or None if truly unresolvable.
         """
         ...
 

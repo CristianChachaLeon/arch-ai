@@ -130,11 +130,12 @@ def _resolve_single_import(
         importer_path: The path of the file doing the import (for relative import resolution)
 
     Returns:
-        The resolved relative path or empty string if not found.
+        The resolved relative path, "external" for stdlib modules,
+        or empty string if not found.
     """
     # Skip stdlib modules
     if _is_stdlib_module(import_name):
-        return ""
+        return "external"
 
     # Handle relative imports (starts with .)
     if import_name.startswith("."):
@@ -214,7 +215,7 @@ def resolve_imports(file_nodes: List[FileNode]) -> List[FileNode]:
     in the repository.
 
     Only imports that match files in the repository are included.
-    Stdlib and third-party imports are filtered out.
+    Stdlib and third-party imports are marked as "external".
 
     Args:
         file_nodes: List of FileNode objects with raw imports.
@@ -225,8 +226,8 @@ def resolve_imports(file_nodes: List[FileNode]) -> List[FileNode]:
 
     Example:
         Input:  FileNode(path="src/main.py", imports=["utils.helpers", "os", "requests"])
-        Output: FileNode(path="src/main.py", imports=["utils/helpers.py"])
-        # "os" and "requests" are stdlib/external, filtered out
+        Output: FileNode(path="src/main.py", imports=["utils/helpers.py", "external"])
+        # "os" and "requests" are stdlib/external, marked as "external"
     """
     # Build lookup by stem (filename without extension)
     # e.g., "helpers" -> "utils/helpers.py"
@@ -265,8 +266,10 @@ def resolve_imports(file_nodes: List[FileNode]) -> List[FileNode]:
 
         for imp in node.imports:
             resolved = _resolve_single_import(imp, files_by_stem, files_by_module, node.path)
-            # Only include if the resolved path exists in our repo
-            if resolved and resolved in {n.path for n in file_nodes}:
+            # Include "external" marker for cross-language/system/stdlib imports
+            if resolved == "external":
+                resolved_imports.append("external")
+            elif resolved and resolved in {n.path for n in file_nodes}:
                 resolved_imports.append(resolved)
 
         # Create new node with resolved imports (only local ones)

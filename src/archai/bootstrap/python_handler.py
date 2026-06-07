@@ -12,7 +12,7 @@ from archai.bootstrap.ast_parser import (
     get_imports,
     parse_python_file,
 )
-from archai.bootstrap.dependency_resolver import _resolve_single_import
+from archai.bootstrap.dependency_resolver import _is_stdlib_module, _resolve_single_import
 from archai.bootstrap.file_discovery import PYTHON_EXCLUDED_DIRS
 from archai.bootstrap.language import (
     ParsedFile,
@@ -77,4 +77,6 @@ class PythonLangHandler:
         )
         if resolved and resolved in all_files:
             return resolved
+        if _is_stdlib_module(import_name):
+            return "external"
         return None

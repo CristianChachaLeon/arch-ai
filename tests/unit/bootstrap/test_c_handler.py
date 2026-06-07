@@ -61,7 +61,7 @@ class TestCLangHandler:
             all_files,
             tmp_path,
         )
-        assert result is None
+        assert result == "external"
 
     def test_resolve_file_relative_include(self, tmp_path):
         (tmp_path / "src").mkdir()
@@ -191,7 +191,7 @@ class TestCppLangHandler:
             all_files,
             tmp_path,
         )
-        assert result is None
+        assert result == "external"
 
     def test_parse_raises_without_tree_sitter_cpp(self, tmp_path):
         try:

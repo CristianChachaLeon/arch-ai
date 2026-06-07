@@ -153,7 +153,7 @@ def _resolve_include(
     project_root: Path,
 ) -> str | None:
     if include_name.startswith("<"):
-        return None
+        return "external"
 
     path = include_name.strip("\"'")
     file_dir = Path(file_path).parent

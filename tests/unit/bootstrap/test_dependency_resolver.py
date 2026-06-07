@@ -10,15 +10,15 @@ def _handler():
 
 
 class TestStdlibFiltering:
-    """Tests that stdlib modules return None from resolve_import()."""
+    """Tests that stdlib modules return "external" from resolve_import()."""
 
     @staticmethod
     def test_resolve_stdlib_os():
-        assert _handler().resolve_import("os", "main.py", set(), Path("/root")) is None
+        assert _handler().resolve_import("os", "main.py", set(), Path("/root")) == "external"
 
     @staticmethod
     def test_resolve_stdlib_dotted_path():
-        assert _handler().resolve_import("os.path", "main.py", set(), Path("/root")) is None
+        assert _handler().resolve_import("os.path", "main.py", set(), Path("/root")) == "external"
 
     @staticmethod
     def test_resolve_non_stdlib_with_no_match():
@@ -208,7 +208,7 @@ class TestResolveSingleImport:
         handler = _handler()
         all_files = {"src/main.py"}
         result = handler.resolve_import("os", "src/main.py", all_files, Path("/root"))
-        assert result is None
+        assert result == "external"
 
     @staticmethod
     def test_filters_mixed():
@@ -216,7 +216,7 @@ class TestResolveSingleImport:
         all_files = {"utils/helpers.py", "src/main.py"}
         r1 = handler.resolve_import("os", "src/main.py", all_files, Path("/root"))
         r2 = handler.resolve_import("utils.helpers", "src/main.py", all_files, Path("/root"))
-        assert r1 is None
+        assert r1 == "external"
         assert r2 == "utils/helpers.py"
 
     @staticmethod
@@ -226,7 +226,7 @@ class TestResolveSingleImport:
         r1 = handler.resolve_import("pkg_b.helper", "pkg_a/main.py", all_files, Path("/root"))
         r2 = handler.resolve_import("os", "pkg_a/main.py", all_files, Path("/root"))
         assert r1 == "pkg_b/helper.py"
-        assert r2 is None
+        assert r2 == "external"
 
     @staticmethod
     def test_self_referencing_resolved():
@@ -297,7 +297,7 @@ class TestResolveImportsFunction:
         ]
         resolved = resolve_imports(nodes)
         assert len(resolved) == 2
-        assert resolved[0].imports == ["src/utils/helpers.py"]
+        assert resolved[0].imports == ["src/utils/helpers.py", "external"]
 
     @staticmethod
     def test_filters_non_existent():
@@ -319,7 +319,7 @@ class TestResolveImportsFunction:
             FileNode(path="src/utils.py", imports=[]),
         ]
         resolved = resolve_imports(nodes)
-        assert resolved[0].imports == []
+        assert resolved[0].imports == ["external", "external"]
 
     @staticmethod
     def test_stem_fallback_when_module_lookup_misses():
