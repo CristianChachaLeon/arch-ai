@@ -29,6 +29,7 @@ class StructuralContext(BaseModel):
     cluster_edges: list[ClusterEdge]
     file_dependencies: dict[str, list[str]]
     test_files: list[str] = Field(default_factory=list)
+    sub_clusters: dict[str, dict[str, list[str]]] = {}
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -105,6 +106,9 @@ class BlastRadiusResponse(BaseModel):
     subsystems_affected: dict[str, int] = Field(
         default_factory=dict, description="Subsystem names mapped to count of affected files"
     )
+    function_name: str | None = None
+    function_dependents: list[str] = []
+    function_dependencies: list[str] = []
 
 
 class ValidateChangeResponse(BaseModel):
@@ -112,6 +116,7 @@ class ValidateChangeResponse(BaseModel):
 
     valid: bool
     violations: list[Violation]
+    intra_file_violations: list[Violation] = []
 
     @model_validator(mode="after")
     def validate_consistency(self) -> ValidateChangeResponse:

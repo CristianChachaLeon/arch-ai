@@ -21,6 +21,10 @@ from archai.models import (
     ValidateChangeResponse,
     Violation,
 )
+from archai.bootstrap.graph_builder import (
+    function_dependents as get_function_dependents,
+    function_dependencies as get_function_dependencies,
+)
 from archai.inference.labeler import LabeledCluster
 from archai.middleware.pipeline import PipelineResult
 from archai.orchestrator.focus_resolver import resolve_focus
@@ -246,7 +250,7 @@ class ArchaiOrchestrator:
         self._inflight: dict[str, asyncio.Task] = {}
 
     async def get_blast_radius(
-        self, repo_path: str, file_path: str, depth: int = 2
+        self, repo_path: str, file_path: str, depth: int = 2, function_name: str | None = None
     ) -> BlastRadiusResponse:
         """Analyze the blast radius of changing a file.
 
@@ -259,15 +263,38 @@ class ArchaiOrchestrator:
             repo_path: Path to the repository
             file_path: The file being changed (relative to repo root)
             depth: How deep to traverse for transitive dependents (1-5)
+            function_name: Optional function name for function-level blast radius analysis
 
         Returns:
             BlastRadiusResponse with the analysis results
 
         Raises:
-            ValueError: If file_path is not in the dependency graph
+            ValueError: If file_path is not in the dependency graph, or if
+                function_name is provided but not found in the function graph
         """
         pipeline_result = await self._get_pipeline_result(repo_path)
         graph = pipeline_result.graph.graph
+
+        if function_name is not None and pipeline_result.function_graph is not None:
+            fg = pipeline_result.function_graph
+            key = f"{file_path}::{function_name}"
+            if key not in fg.graph:
+                raise ValueError(
+                    f"Function '{function_name}' not found in '{file_path}' — "
+                    f"missing key '{key}' in function graph"
+                )
+            deps = get_function_dependencies(fg, file_path, function_name)
+            dependents = get_function_dependents(fg, file_path, function_name)
+            return BlastRadiusResponse(
+                focus_file=file_path,
+                direct_dependents=[],
+                direct_dependencies=[],
+                transitive_dependents=[],
+                subsystems_affected={},
+                function_name=function_name,
+                function_dependents=dependents,
+                function_dependencies=deps,
+            )
 
         if file_path not in graph:
             raise ValueError(f"File '{file_path}' not found in dependency graph")
@@ -536,6 +563,7 @@ class ArchaiOrchestrator:
             cluster_edges=edges,
             file_dependencies=file_deps,
             test_files=test_files,
+            sub_clusters=pipeline_result.sub_clusters,
             metadata=metadata,
         )
 

@@ -6,7 +6,7 @@
 |------|--------|
 | **Project** | ArchAI |
 | **Version** | 0.4.0 |
-| **Status** | Accepted |
+| **Status** | Implemented |
 | **Date** | 2026-06-06 |
 | **Supersedes** | Language-specific sections of 001-sdd, 002-sdd, 003-sdd |
 
@@ -259,16 +259,20 @@ Cross-language resolution could be added via convention-based mapping (e.g., Typ
 
 ## 6. Dependencies
 
-### 6.1 New Optional Dependencies
+### 6.1 Dependencies
 
 ```toml
+[project.dependencies]
+# Core (always installed)
+tree-sitter>=0.20.0
+tree-sitter-c>=0.20              # C support (core since v0.4.x)
+
 [project.optional-dependencies]
 python = []                          # Built-in
 javascript = [
     "tree-sitter-javascript>=0.20",
     "tree-sitter-typescript>=0.20",
 ]
-c = ["tree-sitter-c>=0.20"]
 cpp = ["tree-sitter-cpp>=0.20"]
 go = ["tree-sitter-go>=0.20"]
 rust = ["tree-sitter-rust>=0.20"]
@@ -358,3 +362,163 @@ Warning: TypeScript files detected. Install: pip install archai-mcp[javascript]
 - [ ] Graph contains C/C++ nodes with proper dependency edges
 - [ ] Unified graph contains nodes from all detected languages
 - [ ] All existing tests still pass
+
+---
+
+## 10. Extension: Intra-File Function Clustering
+
+### 10.1 Problem
+
+File-level granularity is insufficient for monolithic C/C++ projects. With a single file containing hundreds of functions (e.g., `nnn.c`: 10,798 lines, 199 functions), archai produces:
+
+| Tool | Result |
+|------|--------|
+| `get_architecture_context` | 1 file → 1 node → 1 cluster → useless |
+| `get_blast_radius` | No dependents (single node graph) |
+| `validate_code_change` | No useful constraints |
+
+The architecture tools become effectively useless for the exact codebases where architecture understanding matters most.
+
+### 10.2 Proposed Pipeline Extension
+
+```text
+Current (v0.4.0):
+  parse → build FileGraph → cluster_files → label
+
+Extended:
+  parse → build FileGraph → cluster_files → label
+           ↓ (for files with >threshold functions)
+       extract calls → build FunctionGraph → cluster_functions → sub_clusters
+```
+
+The existing file-level pipeline is UNCHANGED. Intra-file analysis is an additional layer activated only for files exceeding the function threshold.
+
+### 10.3 Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Call extraction scope | Cross-file (same file + other files) | Enables function-level blast radius across the project |
+| Output format | Two flat levels: `clusters` + `sub_clusters` | Avoids deeply nested structures, easy for agents to consume |
+| Clustering algorithm | Reuse `greedy_modularity_communities` | Already proven in file-level clustering |
+| Function threshold | 20 (configurable) | Avoids overhead for small files |
+| Sub-cluster naming | Auto by common function prefix | No LLM calls needed, deterministic |
+| Breaking changes | None | All new fields are optional with empty defaults |
+
+### 10.4 Call Extraction (tree-sitter)
+
+Add `_CALL_QUERY` to `c_handler.py`:
+
+```scheme
+(call_expression function: (identifier) @call)
+```
+
+For each function definition, extract which known functions it calls:
+- Functions defined in the same file
+- Functions defined in other project files (matched by name)
+
+Resolution is best-effort: function pointers, macros, and indirect calls are invisible.
+
+### 10.5 Intra-File Clustering
+
+Similarity signals adapted for functions:
+
+| Signal | Weight | Description |
+|--------|--------|-------------|
+| `FUNCTION_PREFIX_MATCH_WEIGHT` | 8 | Functions sharing the same naming prefix |
+| `FUNCTION_BIDIRECTIONAL_CALL_WEIGHT` | 10 | Functions that call each other |
+| `FUNCTION_UNIDIRECTIONAL_CALL_WEIGHT` | 5 | A calls B (one direction) |
+| `FUNCTION_SHARED_CALLED_WEIGHT` | 2 | Functions calling the same target functions |
+
+### 10.6 Output Format
+
+```python
+{
+  # File-level (exactly as v0.4.0)
+  "all_clusters": {"cluster_1": ["src/nnn.c"]},
+  "cluster_edges": [],
+  "file_dependencies": {},
+
+  # Intra-file (NEW, only for files > threshold)
+  "sub_clusters": {
+    "src/nnn.c": {
+      "display":      ["printent", "statusbar", "draw_line", "redraw"],
+      "selection":    ["writesel", "startselection", "clearselection"],
+      "event_loop":   ["browse", "handle_event", "nextsel"],
+      "filter":       ["fuzzy_match", "visible_re", "entrycmp"],
+      "thread_pool":  ["du_worker_loop", "du_walk_dir", "prep_threads"],
+      "file_ops":     ["cpmv_rename", "xrm", "spawn", "archive_selection"],
+      "init_config":  ["main", "setup_config", "initcurses", "enable_signals"],
+      "util":         ["xitoa", "xstrsncpy", "abspath", "mkpath"]
+    }
+  }
+}
+```
+
+### 10.7 API Changes (Non-Breaking)
+
+**get_architecture_context**
+- Response adds: `sub_clusters: dict[str, dict[str, list[str]]] = {}`
+
+**get_blast_radius**
+- New optional parameter: `function_name: str | None = None`
+- Response adds: `function_dependents: list[str] = []`, `function_dependencies: list[str] = []`
+
+**validate_code_change**
+- Each ChangeItem adds optional: `function_name: str | None = None`
+- Response adds: `intra_file_violations: list[Violation] = []`
+
+### 10.8 Files Modified
+
+| File | Change | Breaking? |
+|------|--------|-----------|
+| `src/archai/bootstrap/c_handler.py` | + `_CALL_QUERY` tree-sitter, + `FunctionInfo`, + structs for C | ❌ No |
+| `src/archai/bootstrap/language.py` | + `FunctionInfo` model, + `functions_detail` in `ParsedFile` | ❌ No (new field) |
+| `src/archai/bootstrap/graph_builder.py` | + `FunctionNode`, + `build_function_graph()` | ❌ No (new functions) |
+| `src/archai/inference/clustering.py` | + `cluster_functions()` | ❌ No (new function) |
+| `src/archai/middleware/pipeline.py` | + `sub_clusters` in `PipelineResult`, + step 5.5 | ❌ No (new field) |
+| `src/archai/models.py` | + sub-cluster models, + function fields in responses | ❌ No (optional defaults) |
+| `src/archai/orchestrator/orchestrator.py` | + inject sub_clusters, + function-level blast radius | ❌ No (optional params) |
+| `src/archai/mcp_server.py` | + docstrings updates, + optional params | ❌ No (optional) |
+
+### 10.9 Non-Goals
+
+- Python intra-file clustering (future)
+- Struct/global data flow analysis (future)
+- C++ support (future — namespaces, overloads, templates)
+- LLM labeling of sub-clusters (auto-named by prefix)
+- Symbol table / semantic analysis (call matching by name only)
+
+### 10.10 Implementation Phases
+
+**Phase 1: Call Extraction**
+- Add `_CALL_QUERY` to `c_handler.py`
+- Add `FunctionInfo` to `language.py`
+- Extract call relationships per function
+- Extract structs for C (not just C++)
+
+**Phase 2: Function Graph + Clustering**
+- Build `FunctionNode` + `build_function_graph()` in `graph_builder.py`
+- Implement `cluster_functions()` in `clustering.py`
+- Add step 5.5 to pipeline
+
+**Phase 3: Orchestrator + MCP Integration**
+- Inject `sub_clusters` into `StructuralContext`
+- Add `function_name` param to `get_blast_radius`
+- Add intra-file validation to `validate_code_change`
+
+**Phase 4: Tests with nnn**
+- Parse nnn.c and verify function extraction
+- Verify sub-cluster quality matches expected modules
+- Verify blast radius at function level
+- Verify rename refactoring detects intra-file violations
+
+### 10.11 Success Criteria (Extension)
+
+- [ ] C files with >20 functions produce `sub_clusters`
+- [ ] `sub_clusters` appear in `get_architecture_context` response
+- [ ] `get_blast_radius` with `function_name` returns function-level dependents
+- [ ] `validate_code_change` detects intra-file violations
+- [ ] All existing v0.4.0 tests still pass unchanged
+- [ ] Python-only repos show no `sub_clusters` (zero overhead)
+- [ ] nnn.c produces 5-10 meaningful sub-clusters
+- [ ] Function-level blast radius for nnn matches manual analysis
