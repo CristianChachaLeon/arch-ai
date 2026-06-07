@@ -6,7 +6,7 @@
 |------|--------|
 | **Project** | ArchAI |
 | **Version** | 0.4.0 |
-| **Status** | Acepted |
+| **Status** | Accepted |
 | **Date** | 2026-06-06 |
 | **Supersedes** | Language-specific sections of 001-sdd, 002-sdd, 003-sdd |
 
