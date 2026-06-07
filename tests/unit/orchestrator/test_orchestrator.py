@@ -926,6 +926,263 @@ class TestGetSharedState:
         assert middleware.process.await_count == 1  # Still 1
 
 
+class TestTraceFeatureFlow:
+    """Test suite for ArchaiOrchestrator.trace_feature_flow."""
+
+    @pytest.fixture
+    def trace_middleware(self):
+        from unittest.mock import AsyncMock, MagicMock
+        from archai.bootstrap.graph_builder import FileGraph, FunctionGraph, FileNode, FunctionNode
+        import networkx as nx
+
+        # Build a simple function graph
+        fg = FunctionGraph()
+        fg.add_node(
+            "src/main.c::main",
+            FunctionNode(
+                name="main",
+                file_path="src/main.c",
+                calls_internal=["run_plugin"],
+                calls_external=["printf"],
+            ),
+        )
+        fg.add_node(
+            "src/main.c::run_plugin",
+            FunctionNode(
+                name="run_plugin",
+                file_path="src/main.c",
+                calls_internal=["fork"],
+                calls_external=["execvp"],
+            ),
+        )
+        fg.add_node(
+            "src/main.c::fork",
+            FunctionNode(name="fork", file_path="src/main.c", calls_internal=[], calls_external=[]),
+        )
+
+        # Add edges
+        fg.graph.add_edge("src/main.c::main", "src/main.c::run_plugin")
+        fg.graph.add_edge("src/main.c::run_plugin", "src/main.c::fork")
+
+        # Build a file graph with global vars
+        file_graph = nx.DiGraph()
+        file_graph.add_node("src/main.c")
+        fg_file = FileGraph(file_graph)
+        fn = FileNode(
+            path="src/main.c",
+            functions=["main", "run_plugin", "fork"],
+            global_vars=[{"name": "cfg", "line": 1}, {"name": "pselbuf", "line": 2}],
+        )
+        fg_file._nodes["src/main.c"] = fn
+
+        m = AsyncMock()
+        result = MagicMock()
+        result.function_graph = fg
+        result.graph = fg_file
+        result.repo_path = "/fake/repo"
+        m.process.return_value = result
+
+        # Need _get_pipeline_result to use this result
+        return m
+
+    async def test_trace_returns_call_chain(self, trace_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(trace_middleware)
+
+        result = await orch.trace_feature_flow("/fake/repo", "main")
+
+        assert result.entry_point == "main"
+        assert result.functions_traced >= 1
+        assert len(result.call_chain) == 1
+
+    async def test_trace_entry_not_found(self, trace_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(trace_middleware)
+
+        result = await orch.trace_feature_flow("/fake/repo", "nonexistent")
+
+        assert result.functions_traced == 0
+
+    async def test_trace_no_function_graph(self):
+        from unittest.mock import AsyncMock, MagicMock
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        m = AsyncMock()
+        result = MagicMock()
+        result.function_graph = None
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        result = await orch.trace_feature_flow("/fake/repo", "main")
+
+        assert result.functions_traced == 0
+
+    async def test_trace_detects_side_effects_and_risks(self, trace_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(trace_middleware)
+
+        result = await orch.trace_feature_flow("/fake/repo", "fork")
+
+        # fork name triggers side effect + risk
+        se_types = [se.type for se in result.side_effects]
+        assert "fork" in se_types
+        risk_severities = [r.severity for r in result.risks]
+        assert "high" in risk_severities
+
+        assert result.functions_traced == 1
+
+    async def test_trace_collects_shared_state(self, trace_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(trace_middleware)
+
+        result = await orch.trace_feature_flow("/fake/repo", "main")
+
+        assert "cfg" in result.shared_state
+        assert "pselbuf" in result.shared_state
+
+
+class TestDetectSideEffects:
+    """Tests for _detect_side_effects helper."""
+
+    def _make_node(self, name="fn"):
+        from archai.bootstrap.graph_builder import FunctionNode
+
+        return FunctionNode(name=name, file_path="x.c", calls_internal=[], calls_external=[])
+
+    def test_fork_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("fork_process", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "fork"
+
+    def test_clone_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("clone_task", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "fork"
+
+    def test_exec_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        self._make_node()
+        effects = _detect_side_effects("exec_cmd", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "exec"
+
+    def test_spawn_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("spawn_worker", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "exec"
+
+    def test_file_io_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("open_file", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "file_io"
+
+    def test_fread_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("fread_data", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "file_io"
+
+    def test_network_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("connect_server", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "network"
+
+    def test_socket_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("socket_bind", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "network"
+
+    def test_signal_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("signal_handler", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "signal"
+
+    def test_kill_side_effect(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("kill_process", self._make_node())
+        assert len(effects) == 1
+        assert effects[0].type == "signal"
+
+    def test_multiple_side_effects(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("fork_exec_read", self._make_node())
+        types = {e.type for e in effects}
+        assert "fork" in types
+        assert "exec" in types
+        assert "file_io" in types
+
+    def test_no_side_effects(self):
+        from archai.orchestrator.orchestrator import _detect_side_effects
+
+        effects = _detect_side_effects("normal_function", self._make_node())
+        assert effects == []
+
+
+class TestDetectRisks:
+    """Tests for _detect_risks helper."""
+
+    def _make_node(self, name="fn"):
+        from archai.bootstrap.graph_builder import FunctionNode
+
+        return FunctionNode(name=name, file_path="x.c", calls_internal=[], calls_external=[])
+
+    def test_fork_risk(self):
+        from archai.orchestrator.orchestrator import _detect_risks
+
+        risks = _detect_risks("fork", self._make_node(), 0)
+        assert len(risks) == 1
+        assert risks[0].severity == "high"
+
+    def test_clone_risk(self):
+        from archai.orchestrator.orchestrator import _detect_risks
+
+        risks = _detect_risks("clone", self._make_node(), 0)
+        assert len(risks) == 1
+        assert risks[0].severity == "high"
+
+    def test_deep_chain_risk(self):
+        from archai.orchestrator.orchestrator import _detect_risks
+
+        risks = _detect_risks("helper", self._make_node(), 8)
+        assert len(risks) == 1
+        assert risks[0].severity == "medium"
+
+    def test_signal_risk(self):
+        from archai.orchestrator.orchestrator import _detect_risks
+
+        risks = _detect_risks("sigaction", self._make_node(), 0)
+        assert len(risks) == 1
+        assert risks[0].severity == "high"
+
+    def test_no_risks(self):
+        from archai.orchestrator.orchestrator import _detect_risks
+
+        risks = _detect_risks("normal_func", self._make_node(), 1)
+        assert risks == []
+
+
 class TestGetFileDependencies:
     """Tests for get_file_dependencies helper."""
 

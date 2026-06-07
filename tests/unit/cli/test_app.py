@@ -9,6 +9,25 @@ from typer.testing import CliRunner
 from archai.cli.app import app
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _make_mock_trace_result(**overrides):
+    from unittest.mock import MagicMock
+
+    mock = MagicMock()
+    mock.entry_point = "main"
+    mock.entry_file = "src/main.c"
+    mock.functions_traced = 3
+    mock.call_chain = []
+    mock.shared_state = ["cfg", "buffer"]
+    mock.side_effects = []
+    mock.risks = []
+
+    for k, v in overrides.items():
+        setattr(mock, k, v)
+    return mock
+
+
 runner = CliRunner()
 
 
@@ -163,6 +182,102 @@ class TestStateCommand:
             assert result_invoke.exit_code == 0
             assert "debug_mode" in result_invoke.output
             assert "counter" not in result_invoke.output
+
+
+class TestTraceCommand:
+    """Tests for the ``trace`` command."""
+
+    def test_trace_help(self):
+        result = runner.invoke(app, ["trace", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Trace a feature" in plain
+        assert "ENTRY_POINT" in plain
+        assert "--json" in plain
+
+    def test_trace_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["trace", "main", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    def test_trace_pretty_output(self, tmp_path):
+        """Test trace command with pretty-print output."""
+        from unittest.mock import AsyncMock, patch
+
+        from archai.models import CallNode, Risk, SideEffect
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        mock_result = _make_mock_trace_result(
+            call_chain=[
+                CallNode(
+                    function="main",
+                    file_path="src/main.c",
+                    line=5,
+                    calls=[
+                        CallNode(function="fork", file_path="src/main.c", line=42),
+                    ],
+                )
+            ],
+            side_effects=[SideEffect(type="fork", description="Process creation via fork")],
+            risks=[Risk(severity="high", description="Fork risk")],
+        )
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance.trace_feature_flow = AsyncMock(return_value=mock_result)
+
+            result_invoke = runner.invoke(app, ["trace", "main", str(project)])
+            assert result_invoke.exit_code == 0
+            assert "cfg" in result_invoke.output
+            assert "buffer" in result_invoke.output
+            assert "fork" in result_invoke.output
+            assert "HIGH" in result_invoke.output
+
+    def test_trace_json_output(self, tmp_path):
+        """Test trace command with --json flag using a valid dir."""
+        import json as stdjson
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        mock_result = MagicMock()
+        mock_result.model_dump = MagicMock(
+            return_value={
+                "entry_point": "run",
+                "entry_file": "src/main.c",
+                "functions_traced": 2,
+                "call_chain": [],
+                "shared_state": ["cfg"],
+                "side_effects": [],
+                "risks": [],
+            }
+        )
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance.trace_feature_flow = AsyncMock(return_value=mock_result)
+
+            result_invoke = runner.invoke(app, ["trace", "run", str(project), "--json"])
+            assert result_invoke.exit_code == 0
+            parsed = stdjson.loads(result_invoke.output)
+            assert parsed["entry_point"] == "run"
+            assert parsed["functions_traced"] == 2
+            assert "cfg" in parsed["shared_state"]
 
 
 class TestInit:

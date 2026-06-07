@@ -197,3 +197,32 @@ class FileDetailResponse(BaseModel):
     """Project files this file depends on (external/system deps excluded)."""
     external_dependency_count: int = 0
     """Number of external/system dependencies at file level."""
+
+
+class CallNode(BaseModel):
+    function: str
+    file_path: str
+    line: int = 0
+    calls: list["CallNode"] = Field(default_factory=list)
+
+
+class SideEffect(BaseModel):
+    type: str  # "fork", "exec", "file_io", "network", "signal"
+    description: str
+    line: int = 0
+
+
+class Risk(BaseModel):
+    severity: str = "medium"  # "low", "medium", "high"
+    description: str
+
+
+class TraceFlowResponse(BaseModel):
+    entry_point: str
+    entry_file: str = ""
+    call_chain: list[CallNode] = Field(default_factory=list)
+    functions_traced: int = 0
+    shared_state: list[str] = Field(default_factory=list)
+    """Names of global variables touched along the call chain."""
+    side_effects: list[SideEffect] = Field(default_factory=list)
+    risks: list[Risk] = Field(default_factory=list)
