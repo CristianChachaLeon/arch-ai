@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from archai.cli.app import app
 
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 runner = CliRunner()
 
 
@@ -68,9 +69,10 @@ class TestStateCommand:
     def test_state_help(self):
         result = runner.invoke(app, ["state", "--help"])
         assert result.exit_code == 0
-        assert "Analyze shared global state" in result.output
-        assert "--var" in result.output
-        assert "--json" in result.output
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Analyze shared global state" in plain
+        assert "--var" in plain
+        assert "--json" in plain
 
     def test_state_nonexistent_dir(self, tmp_path):
         result = runner.invoke(app, ["state", str(tmp_path / "nonexistent")])
