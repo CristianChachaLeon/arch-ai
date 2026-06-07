@@ -418,3 +418,53 @@ class TestValidateRepoPathGuard:
         result = await m.get_file_detail("/etc/passwd", "x.py")
         parsed = json.loads(result)
         assert "error" in parsed
+
+
+class TestTraceFeatureFlow:
+    """Tests for the ``trace_feature_flow`` MCP tool."""
+
+    async def test_returns_trace_flow(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        mock_resp = MagicMock()
+        mock_resp.model_dump = MagicMock(
+            return_value={
+                "entry_point": "run",
+                "entry_file": "src/core/engine.py",
+                "functions_traced": 3,
+                "call_chain": [],
+                "shared_state": ["cfg"],
+                "side_effects": [
+                    {"type": "fork", "description": "Process creation via fork", "line": 42}
+                ],
+                "risks": [{"severity": "high", "description": "Fork risk"}],
+            }
+        )
+        orch.trace_feature_flow = AsyncMock(return_value=mock_resp)
+
+        result = await m.trace_feature_flow("/fake/repo", "run")
+        parsed = json.loads(result)
+        assert parsed["entry_point"] == "run"
+        assert parsed["functions_traced"] == 3
+        assert len(parsed["side_effects"]) == 1
+
+    async def test_validates_repo_path(self, mcp_env):
+        m = mcp_env["module"]
+        validate = mcp_env["mock_validate"]
+        orch = mcp_env["mock_orch_instance"]
+        mock_resp = MagicMock()
+        mock_resp.model_dump = MagicMock(return_value={})
+        orch.trace_feature_flow = AsyncMock(return_value=mock_resp)
+
+        await m.trace_feature_flow("/fake/repo", "run")
+        validate.assert_called_once_with("/fake/repo")
+
+    async def test_error_returns_json_error(self, mcp_env):
+        m = mcp_env["module"]
+        orch = mcp_env["mock_orch_instance"]
+        orch.trace_feature_flow = AsyncMock(side_effect=ValueError("function not found"))
+
+        result = await m.trace_feature_flow("/fake/repo", "nonexistent")
+        parsed = json.loads(result)
+        assert "error" in parsed
+        assert "function not found" in parsed["error"]

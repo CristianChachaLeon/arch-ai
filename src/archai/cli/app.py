@@ -449,5 +449,111 @@ def state(
     console.print()
 
 
+@app.command()
+def trace(
+    entry_point: str = typer.Argument(..., help="Function name to start tracing from"),
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Trace a feature's call flow through the codebase.
+
+    Starting from a function name, traces the call chain,
+    global variables touched, side effects, and risks.
+    """
+    import asyncio
+    import json as stdjson
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+    from rich.tree import Tree
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+    from archai.orchestrator import ArchaiOrchestrator
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    middleware = ArchaiMiddleware()
+    orch = ArchaiOrchestrator(middleware)
+
+    with console.status(f"[bold green]Tracing {entry_point}..."):
+        try:
+            result = asyncio.run(orch.trace_feature_flow(str(repo), entry_point))
+        except ValueError as e:
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    if json_output:
+        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        return
+
+    # Pretty-print
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]Entry:[/bold] {result.entry_point}\n"
+            f"[bold]File:[/bold] {result.entry_file}\n"
+            f"[bold]Functions traced:[/bold] {result.functions_traced}",
+            title="[bold]🔍 Trace Analysis[/bold]",
+        )
+    )
+    console.print()
+
+    # Call chain tree
+    if result.call_chain:
+        console.print("[bold]📞 Call Chain[/bold]")
+
+        def render_tree(node, tree, depth=0):
+            label = f"[green]{node.function}[/green] [dim]{node.file_path}[/dim]"
+            if node.line:
+                label += f" [cyan]:{node.line}[/cyan]"
+            branch = tree.add(label)
+            for child in node.calls:
+                render_tree(child, branch, depth + 1)
+
+        tree = Tree(f"[bold]{result.entry_point}[/bold]")
+        for child in result.call_chain[0].calls:
+            render_tree(child, tree)
+        if tree.children:
+            console.print(tree)
+            console.print()
+
+    # Shared state
+    if result.shared_state:
+        console.print(f"[bold]📦 Shared State ({len(result.shared_state)})[/bold]")
+        for var in result.shared_state:
+            console.print(f"  {var}")
+        console.print()
+
+    # Side effects
+    if result.side_effects:
+        console.print("[bold]⚡ Side Effects[/bold]")
+        se_table = Table(show_header=True, header_style="bold magenta")
+        se_table.add_column("Type", style="cyan")
+        se_table.add_column("Description", style="white")
+        for se in result.side_effects:
+            se_table.add_row(se.type, se.description)
+        console.print(se_table)
+        console.print()
+
+    # Risks
+    if result.risks:
+        console.print("[bold]⚠️ Risks[/bold]")
+        risk_table = Table(show_header=True, header_style="bold magenta")
+        risk_table.add_column("Severity", style="red")
+        risk_table.add_column("Description", style="white")
+        for r in result.risks:
+            risk_table.add_row(r.severity.upper(), r.description)
+        console.print(risk_table)
+
+
 if __name__ == "__main__":
     app()

@@ -236,5 +236,26 @@ async def get_shared_state(repo_path: str, variable_filter: str | None = None) -
         return json.dumps({"error": str(exc)})
 
 
+@mcp.tool()
+async def trace_feature_flow(repo_path: str, entry_point: str) -> str:
+    """Trace a feature's call flow through the codebase.
+
+    Starting from entry_point (a function name), traces the call chain,
+    global variables touched, side effects, and risks.
+
+    Use this to understand HOW a feature works before modifying it.
+
+    Args:
+        repo_path: Absolute path to the repository root
+        entry_point: Function name to start tracing (e.g. "run_plugin")
+    """
+    try:
+        resolved = validate_repo_path(repo_path)
+        result = await orchestrator.trace_feature_flow(resolved, entry_point)
+        return json.dumps(result.model_dump(), indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

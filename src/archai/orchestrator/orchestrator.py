@@ -12,16 +12,20 @@ import networkx
 
 from archai.models import (
     BlastRadiusResponse,
+    CallNode,
     ChangeItem,
     ClusterEdge,
     ContextPacket,
     FileDetailResponse,
     FileMetadata,
     FunctionDetail,
+    Risk,
     SharedStateResponse,
     SharedVariable,
+    SideEffect,
     StructuralContext,
     SubsystemConstraints,
+    TraceFlowResponse,
     ValidateChangeResponse,
     Violation,
 )
@@ -443,6 +447,98 @@ class ArchaiOrchestrator:
             ],
         )
 
+    async def trace_feature_flow(self, repo_path: str, entry_point: str) -> TraceFlowResponse:
+        """Trace a feature/function call flow through the codebase.
+
+        Starting from entry_point, traces the call chain through
+        the function graph, collecting shared state and side effects.
+
+        Args:
+            repo_path: Path to the repository
+            entry_point: Function name to start tracing from
+
+        Returns:
+            TraceFlowResponse with call chain, shared state, and risks
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path)
+        fg = pipeline_result.function_graph
+
+        if fg is None or fg.node_count == 0:
+            return TraceFlowResponse(
+                entry_point=entry_point,
+                functions_traced=0,
+            )
+
+        # Find the entry node — match by function name
+        entry_key = None
+        for key in fg.graph.nodes():
+            if key.endswith(f"::{entry_point}"):
+                entry_key = key
+                break
+
+        if entry_key is None:
+            return TraceFlowResponse(
+                entry_point=entry_point,
+                functions_traced=0,
+            )
+
+        # BFS to build call chain
+        visited: set[str] = set()
+        side_effects: list[SideEffect] = []
+        shared_state: set[str] = set()
+        risks: list[Risk] = []
+
+        def build_call_node(key: str, depth: int = 0) -> CallNode | None:
+            if depth > 10 or key in visited:
+                return None
+            visited.add(key)
+
+            node = fg.get_node(key)
+            if node is None:
+                return None
+
+            file_path, func_name = key.split("::", 1)
+
+            # Detect side effects from function name patterns
+            se = _detect_side_effects(func_name, node)
+            side_effects.extend(se)
+
+            # Detect risks
+            r = _detect_risks(func_name, node, depth)
+            risks.extend(r)
+
+            # Collect shared state — look at global_vars from file node
+            file_node = pipeline_result.graph.get_node(file_path)
+            if file_node and hasattr(file_node, "global_vars") and file_node.global_vars:
+                for gv in file_node.global_vars:
+                    shared_state.add(gv["name"])
+
+            # Recursively trace callees
+            children: list[CallNode] = []
+            for callee_key in fg.graph.successors(key):
+                child = build_call_node(callee_key, depth + 1)
+                if child:
+                    children.append(child)
+
+            return CallNode(
+                function=func_name,
+                file_path=file_path,
+                line=node.line if hasattr(node, "line") else 0,
+                calls=children,
+            )
+
+        root = build_call_node(entry_key)
+
+        return TraceFlowResponse(
+            entry_point=entry_point,
+            entry_file=root.file_path if root else "",
+            call_chain=[root] if root else [],
+            functions_traced=len(visited),
+            shared_state=sorted(shared_state),
+            side_effects=side_effects,
+            risks=risks,
+        )
+
     async def _get_pipeline_result(self, repo_path: str, force: bool = False) -> PipelineResult:
         """Get or process the pipeline result for a repo path.
 
@@ -743,3 +839,81 @@ def _build_file_to_subsystem(pipeline_result: PipelineResult) -> dict[str, str]:
             for f in files:
                 file_to_subsystem[f] = cluster_id
     return file_to_subsystem
+
+
+def _detect_side_effects(func_name: str, node) -> list[SideEffect]:
+    """Detect side effects from function name or call patterns."""
+    effects = []
+    name_lower = func_name.lower()
+
+    if any(kw in name_lower for kw in ["fork", "clone"]):
+        effects.append(
+            SideEffect(
+                type="fork",
+                description=f"Process creation via {func_name}",
+                line=node.line if hasattr(node, "line") else 0,
+            )
+        )
+    if any(kw in name_lower for kw in ["exec", "spawn", "system", "popen"]):
+        effects.append(
+            SideEffect(
+                type="exec",
+                description=f"Process execution via {func_name}",
+                line=node.line if hasattr(node, "line") else 0,
+            )
+        )
+    if any(kw in name_lower for kw in ["open", "read", "write", "fopen", "fread", "fwrite"]):
+        effects.append(
+            SideEffect(
+                type="file_io",
+                description=f"File I/O via {func_name}",
+                line=node.line if hasattr(node, "line") else 0,
+            )
+        )
+    if any(kw in name_lower for kw in ["connect", "socket", "send", "recv", "listen"]):
+        effects.append(
+            SideEffect(
+                type="network",
+                description=f"Network via {func_name}",
+                line=node.line if hasattr(node, "line") else 0,
+            )
+        )
+    if any(kw in name_lower for kw in ["signal", "kill"]):
+        effects.append(
+            SideEffect(
+                type="signal",
+                description=f"Signal via {func_name}",
+                line=node.line if hasattr(node, "line") else 0,
+            )
+        )
+
+    return effects
+
+
+def _detect_risks(func_name: str, node, depth: int) -> list[Risk]:
+    """Detect risks based on function patterns."""
+    risks = []
+    name_lower = func_name.lower()
+
+    if any(kw in name_lower for kw in ["fork", "clone"]):
+        risks.append(
+            Risk(
+                severity="high", description=f"Fork in '{func_name}' — child process inherits state"
+            )
+        )
+    if depth >= 8:
+        risks.append(
+            Risk(
+                severity="medium",
+                description=f"Deep call chain (depth {depth}) — hard to reason about",
+            )
+        )
+    if any(kw in name_lower for kw in ["signal", "sigaction"]):
+        risks.append(
+            Risk(
+                severity="high",
+                description=f"Signal handler '{func_name}' — async-signal unsafe functions may crash",
+            )
+        )
+
+    return risks
