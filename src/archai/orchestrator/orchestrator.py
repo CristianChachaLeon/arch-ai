@@ -485,6 +485,9 @@ class ArchaiOrchestrator:
         # BFS to build call chain
         visited: set[str] = set()
         side_effects: list[SideEffect] = []
+        # NOTE: per-function shared state tracking is not yet implemented.
+        # Once the AST layer tracks which globals each function reads/writes,
+        # this should collect from function-level `writers`/`readers` instead.
         shared_state: set[str] = set()
         risks: list[Risk] = []
 
@@ -506,12 +509,6 @@ class ArchaiOrchestrator:
             # Detect risks
             r = _detect_risks(func_name, node, depth)
             risks.extend(r)
-
-            # Collect shared state — look at global_vars from file node
-            file_node = pipeline_result.graph.get_node(file_path)
-            if file_node and hasattr(file_node, "global_vars") and file_node.global_vars:
-                for gv in file_node.global_vars:
-                    shared_state.add(gv["name"])
 
             # Recursively trace callees
             children: list[CallNode] = []
@@ -784,6 +781,33 @@ class ArchaiOrchestrator:
             sub_clusters=pipeline_result.sub_clusters,
             metadata=metadata,
         )
+
+    async def propose_change(self, repo_path: str, description: str) -> dict:
+        """Suggest files affected for a desired change.
+
+        Args:
+            repo_path: Path to the repository
+            description: Description of the desired change
+
+        Returns:
+            Dict with suggested files and metadata
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path)
+        keywords = description.lower().split()
+        matched = []
+        for file_path in pipeline_result.graph.graph.nodes():
+            if file_path == "external":
+                continue
+            path_lower = file_path.lower()
+            matches = sum(1 for kw in keywords if kw in path_lower)
+            if matches > 0:
+                matched.append({"file": file_path, "relevance": matches})
+        matched.sort(key=lambda x: -x["relevance"])
+        return {
+            "description": description,
+            "suggested_files": [m["file"] for m in matched],
+            "total_matches": len(matched),
+        }
 
 
 def _get_transitive_dependents(graph, file: str, max_depth: int) -> set[str]:

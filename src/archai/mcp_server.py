@@ -257,5 +257,24 @@ async def trace_feature_flow(repo_path: str, entry_point: str) -> str:
         return json.dumps({"error": str(exc)})
 
 
+@mcp.tool()
+async def propose_change(repo_path: str, description: str) -> str:
+    """Suggest files and functions affected for a desired change.
+
+    Uses the dependency graph to suggest which files would
+    need modification based on keyword matching.
+
+    Args:
+        repo_path: Absolute path to the repository root
+        description: Description of the desired change (e.g. "add preview to plugin system")
+    """
+    try:
+        resolved = validate_repo_path(repo_path)
+        result = await orchestrator.propose_change(resolved, description)
+        return json.dumps(result, indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

@@ -655,21 +655,23 @@ def validate(
     repo_path: str = typer.Argument(".", help="Path to the repository"),
     json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ):
-    """Validate proposed code changes against architectural constraints.
+    """Show structural context for proposed code changes.
 
     Reads a patch file (diff format), analyzes which files are touched,
-    and checks for constraint violations (blocking I/O, forbidden deps, etc).
+    and returns cluster info, dependencies, and new imports.
+    The agent uses this structural data to determine validity.
     """
     import asyncio
     import json as stdjson
+    import re
     from pathlib import Path
 
     from rich.console import Console
-    from rich.table import Table
     from rich.panel import Panel
 
     from archai.middleware.pipeline import ArchaiMiddleware
     from archai.orchestrator import ArchaiOrchestrator
+    from archai.orchestrator.orchestrator import get_cluster_edges
 
     console = Console()
     repo = Path(repo_path).resolve()
@@ -683,7 +685,6 @@ def validate(
         console.print(f"[red]✗ Error:[/red] Patch file not found: {patch_path}")
         raise typer.Exit(code=1)
 
-    # Parse patch file into ChangeItems
     patch_text = patch_path.read_text()
     changes = _parse_patch_file(patch_text)
 
@@ -694,9 +695,9 @@ def validate(
     middleware = ArchaiMiddleware()
     orch = ArchaiOrchestrator(middleware)
 
-    with console.status(f"[bold green]Validating {len(changes)} change(s)..."):
+    with console.status(f"[bold green]Analyzing {len(changes)} change(s)..."):
         try:
-            result = asyncio.run(orch.validate_changes(str(repo), changes))
+            pipeline_result = asyncio.run(orch._get_pipeline_result(str(repo)))
         except Exception as e:
             if json_output:
                 console.print(stdjson.dumps({"error": str(e)}))
@@ -704,27 +705,97 @@ def validate(
                 console.print(f"\n[red]✗ Error:[/red] {e}")
             raise typer.Exit(code=1)
 
+    graph = pipeline_result.graph.graph
+
+    structural_results = []
+    for change in changes:
+        file_cluster = pipeline_result.get_cluster_for_file(change.file_path)
+        cluster_files = list(pipeline_result.clusters.get(file_cluster, [])) if file_cluster else []
+
+        cluster_deps = {"imports_from_cluster": [], "imported_by_clusters": []}
+        if file_cluster:
+            edges = [
+                e
+                for e in get_cluster_edges(graph, pipeline_result.clusters)
+                if e.from_cluster == file_cluster or e.to_cluster == file_cluster
+            ]
+            for e in edges:
+                if (
+                    e.from_cluster == file_cluster
+                    and e.to_cluster not in cluster_deps["imports_from_cluster"]
+                ):
+                    cluster_deps["imports_from_cluster"].append(e.to_cluster)
+                if (
+                    e.to_cluster == file_cluster
+                    and e.from_cluster not in cluster_deps["imported_by_clusters"]
+                ):
+                    cluster_deps["imported_by_clusters"].append(e.from_cluster)
+
+        added_lines = [
+            line[1:]
+            for line in change.patch.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        added_text = "\n".join(added_lines)
+
+        new_imports = re.findall(r"^(?:from\s+(\S+)\s+)?import\s+(\S+)", added_text, re.MULTILINE)
+        new_import_paths = []
+        for from_match, import_match in new_imports:
+            if from_match:
+                new_import_paths.append(from_match.replace(".", "/") + ".py")
+            else:
+                new_import_paths.append(import_match.replace(".", "/") + ".py")
+
+        file_deps = {}
+        if change.file_path in graph:
+            file_deps[change.file_path] = sorted(graph.successors(change.file_path))
+
+        structural_results.append(
+            {
+                "file_path": change.file_path,
+                "file_cluster": file_cluster or "unknown",
+                "cluster_files": cluster_files,
+                "cluster_dependencies": cluster_deps,
+                "file_dependencies": file_deps,
+                "new_imports_in_patch": new_import_paths,
+            }
+        )
+
     if json_output:
-        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        out = structural_results if len(structural_results) > 1 else structural_results[0]
+        console.print(stdjson.dumps(out, indent=2, default=str))
         return
 
-    console.print()
-    if result.valid:
-        console.print(Panel("[bold green]✅ All changes valid[/bold green]", title="Validation"))
-    else:
+    for item in structural_results:
+        console.print()
         console.print(
             Panel(
-                f"[bold red]❌ {len(result.violations)} violation(s) found[/bold red]",
-                title="Validation",
+                f"[bold]File:[/bold] [cyan]{item['file_path']}[/cyan]\n"
+                f"[bold]Cluster:[/bold] [yellow]{item['file_cluster']}[/yellow] "
+                f"({len(item['cluster_files'])} files)",
+                title="Structural Analysis",
             )
         )
-        viol_table = Table(show_header=True, header_style="bold magenta")
-        viol_table.add_column("File", style="cyan")
-        viol_table.add_column("Rule", style="yellow")
-        viol_table.add_column("Message", style="white")
-        for v in result.violations:
-            viol_table.add_row(v.file, v.rule, v.message)
-        console.print(viol_table)
+
+        if item["new_imports_in_patch"]:
+            console.print("\n[bold]New imports in patch:[/bold]")
+            for imp in item["new_imports_in_patch"]:
+                console.print(f"  [green]+[/green] {imp}")
+
+        if item["cluster_dependencies"]["imports_from_cluster"]:
+            console.print("\n[bold]Cluster imports to:[/bold]")
+            for dep in item["cluster_dependencies"]["imports_from_cluster"]:
+                console.print(f"  [blue]→[/blue] {dep}")
+
+        if item["cluster_dependencies"]["imported_by_clusters"]:
+            console.print("\n[bold]Imported by clusters:[/bold]")
+            for dep in item["cluster_dependencies"]["imported_by_clusters"]:
+                console.print(f"  [magenta]←[/magenta] {dep}")
+
+        if item["file_dependencies"].get(item["file_path"]):
+            console.print("\n[bold]File dependencies:[/bold]")
+            for dep in item["file_dependencies"][item["file_path"]]:
+                console.print(f"  [dim]{dep}[/dim]")
 
 
 def _parse_patch_file(patch_text: str) -> list:
@@ -762,6 +833,127 @@ def _parse_patch_file(patch_text: str) -> list:
         )
 
     return changes
+
+
+@app.command()
+def check(
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Check architecture design rules.
+
+    Scans the repository for circular dependencies and architectural issues.
+    """
+    import asyncio
+    import json as stdjson
+
+    from rich.console import Console
+    from rich.table import Table
+    from rich.panel import Panel
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    middleware = ArchaiMiddleware()
+    with console.status(f"[bold green]Checking {repo.name}..."):
+        try:
+            result = asyncio.run(middleware.process(str(repo)))
+        except Exception as e:
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    cycles = result.graph.detect_cycles()
+    issues = []
+    if cycles:
+        for cycle in cycles:
+            issues.append(
+                {
+                    "type": "circular_dependency",
+                    "severity": "high",
+                    "files": cycle,
+                    "message": f"Circular dependency: {' → '.join(cycle)}",
+                }
+            )
+
+    if json_output:
+        console.print(stdjson.dumps({"issues": issues, "total_issues": len(issues)}, indent=2))
+        return
+
+    console.print()
+    console.print(Panel(f"[bold]Issues found:[/bold] {len(issues)}", title="🔍 Architecture Check"))
+    console.print()
+
+    if issues:
+        issue_table = Table(show_header=True, header_style="bold magenta")
+        issue_table.add_column("Type", style="cyan")
+        issue_table.add_column("Severity", style="red")
+        issue_table.add_column("Message", style="white")
+        for issue in issues:
+            issue_table.add_row(issue["type"], issue["severity"].upper(), issue["message"])
+        console.print(issue_table)
+    else:
+        console.print("[green]✅ No issues found[/green]")
+
+
+@app.command()
+def ci(
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+):
+    """Run archai checks for CI/CD pipelines.
+
+    Exits with code 1 if issues are found (circular deps, etc.).
+    Outputs JSON report to stdout.
+    """
+    import asyncio
+    import json as stdjson
+
+    from archai.middleware.pipeline import ArchaiMiddleware
+
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        print(stdjson.dumps({"error": f"Not a directory: {repo}"}))
+        raise typer.Exit(code=1)
+
+    try:
+        result = asyncio.run(ArchaiMiddleware().process(str(repo)))
+    except Exception as e:
+        print(stdjson.dumps({"error": str(e)}))
+        raise typer.Exit(code=1)
+
+    cycles = result.graph.detect_cycles()
+    issues = []
+    if cycles:
+        for cycle in cycles:
+            issues.append(
+                {
+                    "type": "circular_dependency",
+                    "severity": "high",
+                    "message": f"Circular dependency: {' → '.join(cycle)}",
+                }
+            )
+
+    report = {
+        "repo": str(repo),
+        "file_count": result.file_count,
+        "cluster_count": result.cluster_count,
+        "issues": issues,
+        "total_issues": len(issues),
+        "healthy": len(issues) == 0,
+    }
+
+    print(stdjson.dumps(report, indent=2))
+    if issues:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
