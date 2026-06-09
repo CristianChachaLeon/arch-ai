@@ -485,6 +485,9 @@ class ArchaiOrchestrator:
         # BFS to build call chain
         visited: set[str] = set()
         side_effects: list[SideEffect] = []
+        # NOTE: per-function shared state tracking is not yet implemented.
+        # Once the AST layer tracks which globals each function reads/writes,
+        # this should collect from function-level `writers`/`readers` instead.
         shared_state: set[str] = set()
         risks: list[Risk] = []
 
@@ -506,12 +509,6 @@ class ArchaiOrchestrator:
             # Detect risks
             r = _detect_risks(func_name, node, depth)
             risks.extend(r)
-
-            # Collect shared state — look at global_vars from file node
-            file_node = pipeline_result.graph.get_node(file_path)
-            if file_node and hasattr(file_node, "global_vars") and file_node.global_vars:
-                for gv in file_node.global_vars:
-                    shared_state.add(gv["name"])
 
             # Recursively trace callees
             children: list[CallNode] = []
