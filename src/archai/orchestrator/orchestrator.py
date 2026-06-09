@@ -782,6 +782,33 @@ class ArchaiOrchestrator:
             metadata=metadata,
         )
 
+    async def propose_change(self, repo_path: str, description: str) -> dict:
+        """Suggest files affected for a desired change.
+
+        Args:
+            repo_path: Path to the repository
+            description: Description of the desired change
+
+        Returns:
+            Dict with suggested files and metadata
+        """
+        pipeline_result = await self._get_pipeline_result(repo_path)
+        keywords = description.lower().split()
+        matched = []
+        for file_path in pipeline_result.graph.graph.nodes():
+            if file_path == "external":
+                continue
+            path_lower = file_path.lower()
+            matches = sum(1 for kw in keywords if kw in path_lower)
+            if matches > 0:
+                matched.append({"file": file_path, "relevance": matches})
+        matched.sort(key=lambda x: -x["relevance"])
+        return {
+            "description": description,
+            "suggested_files": [m["file"] for m in matched],
+            "total_matches": len(matched),
+        }
+
 
 def _get_transitive_dependents(graph, file: str, max_depth: int) -> set[str]:
     """Get files that transitively depend on file, up to max_depth.
@@ -836,33 +863,6 @@ def _build_file_to_subsystem(pipeline_result: PipelineResult) -> dict[str, str]:
             for f in files:
                 file_to_subsystem[f] = cluster_id
     return file_to_subsystem
-
-    async def propose_change(self, repo_path: str, description: str) -> dict:
-        """Suggest files affected for a desired change.
-
-        Args:
-            repo_path: Path to the repository
-            description: Description of the desired change
-
-        Returns:
-            Dict with suggested files and metadata
-        """
-        pipeline_result = await self._get_pipeline_result(repo_path)
-        keywords = description.lower().split()
-        matched = []
-        for file_path in pipeline_result.graph.graph.nodes():
-            if file_path == "external":
-                continue
-            path_lower = file_path.lower()
-            matches = sum(1 for kw in keywords if kw in path_lower)
-            if matches > 0:
-                matched.append({"file": file_path, "relevance": matches})
-        matched.sort(key=lambda x: -x["relevance"])
-        return {
-            "description": description,
-            "suggested_files": [m["file"] for m in matched],
-            "total_matches": len(matched),
-        }
 
 
 def _detect_side_effects(func_name: str, node) -> list[SideEffect]:
