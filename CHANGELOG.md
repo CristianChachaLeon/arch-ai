@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3 (2026-06-10)
+
+- **`archai state` now shows Writers/Readers** — wired existing `_extract_var_access()` through all 4 layers (c_handler → ParsedFile → FileNode → SharedVariable) to populate function names instead of dashes
+- Fixed `test_pipeline.py` unused variable warning
+
 ## 0.5.0 (2026-06-07)
 
 - **New MCP tool `get_file_detail`** — detailed per-file analysis (functions, classes, imports, dependents)
