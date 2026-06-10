@@ -487,6 +487,91 @@ class TestGlobalVarExtraction:
         assert "global_counter" in names
         assert "main" not in names
 
+    def test_do_parse_extracts_var_access(self, tmp_path):
+        """Test _do_parse populates var_access for functions that use globals."""
+        from archai.bootstrap.c_handler import _do_parse, _get_c_parser
+
+        parser = _get_c_parser()
+        c_file = tmp_path / "test.c"
+        c_file.write_text(
+            "int cfg;\n"
+            "char buf[256];\n"
+            "\n"
+            "void init(void) {\n"
+            "    cfg = 42;\n"
+            "}\n"
+            "\n"
+            "void process(void) {\n"
+            "    int x = cfg;\n"
+            "    buf[0] = 'a';\n"
+            "}\n"
+        )
+
+        result = _do_parse(c_file, parser, language_name="c")
+
+        assert "init" in result.var_access
+        assert "process" in result.var_access
+        assert any(w["name"] == "cfg" for w in result.var_access["init"]["writes"])
+        assert any(r["name"] == "cfg" for r in result.var_access["process"]["reads"])
+        assert any(r["name"] == "buf" for r in result.var_access["process"]["reads"])
+
+    def test_do_parse_no_globals_var_access_empty(self, tmp_path):
+        """Test _do_parse returns empty var_access when no globals exist."""
+        from archai.bootstrap.c_handler import _do_parse, _get_c_parser
+
+        parser = _get_c_parser()
+        c_file = tmp_path / "test.c"
+        c_file.write_text("void f() {\n" "    int x = 1;\n" "}\n")
+
+        result = _do_parse(c_file, parser, language_name="c")
+        assert result.var_access == {}
+
+    def test_do_parse_var_access_read_only(self, tmp_path):
+        """Test functions that only read globals."""
+        from archai.bootstrap.c_handler import _do_parse, _get_c_parser
+
+        parser = _get_c_parser()
+        c_file = tmp_path / "test.c"
+        c_file.write_text("int flag;\n" "void check(void) {\n" "    if (flag) { return; }\n" "}\n")
+
+        result = _do_parse(c_file, parser, language_name="c")
+
+        assert "check" in result.var_access
+        assert len(result.var_access["check"]["writes"]) == 0
+        assert any(r["name"] == "flag" for r in result.var_access["check"]["reads"])
+
+    def test_do_parse_multiple_functions_var_access(self, tmp_path):
+        """Test two functions touching different globals."""
+        from archai.bootstrap.c_handler import _do_parse, _get_c_parser
+
+        parser = _get_c_parser()
+        c_file = tmp_path / "test.c"
+        c_file.write_text(
+            "int counter;\n"
+            "int debug;\n"
+            "void inc(void) {\n"
+            "    counter++;\n"
+            "}\n"
+            "void toggle(void) {\n"
+            "    debug = !debug;\n"
+            "}\n"
+        )
+
+        result = _do_parse(c_file, parser, language_name="c")
+
+        assert "inc" in result.var_access
+        assert "toggle" in result.var_access
+
+        assert (
+            len(result.var_access["inc"]["writes"]) == 0
+        )  # counter++ is update_expression, not assignment
+        assert any(r["name"] == "counter" for r in result.var_access["inc"]["reads"])
+
+        assert any(w["name"] == "debug" for w in result.var_access["toggle"]["writes"])
+        # debug = !debug is an assignment, so debug is in writes only
+        # (existing _extract_var_access logic: if already a write, skip read)
+        assert len(result.var_access["toggle"]["reads"]) == 0
+
 
 class TestGetCParserImportError:
     """Tests for _get_c_parser() ImportError branch."""

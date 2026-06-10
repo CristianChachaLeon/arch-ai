@@ -27,6 +27,7 @@ from archai.models import (
     SubsystemConstraints,
     TraceFlowResponse,
     ValidateChangeResponse,
+    VariableAccess,
     Violation,
 )
 from archai.bootstrap.graph_builder import (
@@ -429,6 +430,31 @@ class ArchaiOrchestrator:
                         declared_in=file_path,
                         line=gvar.get("line", 0),
                     )
+
+            if node.var_access:
+                for func_name, access in node.var_access.items():
+                    for w in access.get("writes", []):
+                        var_name = w["name"]
+                        if var_name in all_vars:
+                            all_vars[var_name].writers.append(
+                                VariableAccess(
+                                    function=func_name,
+                                    file_path=file_path,
+                                    line=w.get("line", 0),
+                                    access_type="write",
+                                )
+                            )
+                    for r in access.get("reads", []):
+                        var_name = r["name"]
+                        if var_name in all_vars:
+                            all_vars[var_name].readers.append(
+                                VariableAccess(
+                                    function=func_name,
+                                    file_path=file_path,
+                                    line=r.get("line", 0),
+                                    access_type="read",
+                                )
+                            )
 
         variables = list(all_vars.values())
         if variable_filter:

@@ -40,6 +40,9 @@ class ParsedFile(BaseModel):
     functions_detail: list[FunctionInfo] = []
     language: str  # e.g., "python", "c", "cpp"
     global_vars: list[dict] = []  # [{name, type, line, is_static}]
+    var_access: dict[str, dict] = (
+        {}
+    )  # {fn_name: {"writes": [{name, line}], "reads": [{name, line}]}}
 
 
 @runtime_checkable

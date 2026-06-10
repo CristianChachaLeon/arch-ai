@@ -164,6 +164,7 @@ class ArchaiMiddleware:
                         functions=parsed.functions,
                         classes=parsed.classes,
                         global_vars=parsed.global_vars,
+                        var_access=parsed.var_access,
                     )
                 )
                 continue
@@ -182,6 +183,7 @@ class ArchaiMiddleware:
                     classes=parsed.classes,
                     functions_detail=parsed.functions_detail,
                     global_vars=parsed.global_vars,
+                    var_access=parsed.var_access,
                 )
             )
 

@@ -805,7 +805,7 @@ class TestGetSharedState:
         assert names == {"cfg", "debug_flag"}
 
     async def test_get_shared_state_most_written(self):
-        """Test that most_written/most_read are populated from variable access data."""
+        """Test that var_access data flows into SharedVariable writers/readers."""
         from archai.orchestrator.orchestrator import ArchaiOrchestrator
         from archai.bootstrap.graph_builder import FileNode
 
@@ -823,7 +823,7 @@ class TestGetSharedState:
                     },
                     "log": {
                         "writes": [{"name": "verbose", "line": 10}],
-                        "reads": [],
+                        "reads": [{"name": "verbose", "line": 12}],
                     },
                 },
             ),
@@ -832,11 +832,19 @@ class TestGetSharedState:
         orch = ArchaiOrchestrator(middleware)
         response = await orch.get_shared_state("/fake/repo")
 
-        # The var_access data isn't currently wired through get_shared_state
-        # (it reads global_vars only, not var_access). This test verifies
-        # the current behavior and documents the limitation.
         assert response.total_count == 1
-        assert response.variables[0].name == "verbose"
+        verbose = response.variables[0]
+        assert verbose.name == "verbose"
+        assert len(verbose.writers) == 2
+        assert len(verbose.readers) == 1
+        assert verbose.writers[0].function == "main"
+        assert verbose.writers[0].access_type == "write"
+        assert verbose.writers[1].function == "log"
+        assert verbose.writers[1].access_type == "write"
+        assert verbose.readers[0].function == "log"
+        assert verbose.readers[0].access_type == "read"
+        assert "verbose" in response.most_written
+        assert "verbose" in response.most_read
 
     async def test_get_shared_state_filter_by_substring(self):
         """Test case-insensitive substring filtering."""
