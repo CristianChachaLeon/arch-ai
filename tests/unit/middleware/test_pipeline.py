@@ -119,3 +119,54 @@ def authenticate():
         # discover_python_files raises ValueError for invalid paths
         with pytest.raises(ValueError, match="Path is not a directory"):
             await middleware.process(missing_path)
+
+
+class TestVarAccessPipeline:
+    """Tests for var_access flow through the pipeline."""
+
+    @pytest.fixture
+    def c_repo(self, tmp_path):
+        """Create a temporary C repository with global variables."""
+        (tmp_path / "main.c").write_text(
+            "int cfg;\n"
+            "int debug;\n"
+            "\n"
+            "void init(void) {\n"
+            "    cfg = 42;\n"
+            "}\n"
+            "\n"
+            "void process(void) {\n"
+            "    if (debug) {\n"
+            "        cfg = 0;\n"
+            "    }\n"
+            "}\n"
+        )
+        (tmp_path / "Makefile").touch()
+        return tmp_path
+
+    async def test_var_access_present_in_file_node(self, c_repo):
+        """Verifies var_access flows from ParsedFile through to FileNode."""
+        try:
+            import tree_sitter_c  # noqa: F401
+        except ImportError:
+            pytest.skip("tree-sitter-c not installed")
+
+        middleware = ArchaiMiddleware()
+        file_nodes, _ = middleware._run_bootstrap(str(c_repo))
+
+        main_node = None
+        for fn in file_nodes:
+            if fn.path == "main.c":
+                main_node = fn
+                break
+
+        assert main_node is not None
+        assert main_node.var_access is not None
+        assert "init" in main_node.var_access
+        assert "process" in main_node.var_access
+
+        init_writes = main_node.var_access["init"]["writes"]
+        assert any(w["name"] == "cfg" for w in init_writes)
+
+        process_reads = main_node.var_access["process"]["reads"]
+        assert any(r["name"] == "debug" for r in process_reads)

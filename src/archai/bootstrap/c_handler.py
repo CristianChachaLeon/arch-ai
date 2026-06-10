@@ -332,7 +332,18 @@ def _do_parse(file: Path, parser: Any, language_name: str = "") -> ParsedFile:
         if name:
             all_func_names.add(name)
 
-    # Second pass: extract calls per function
+    # Extract struct/class for both C and C++ (struct_specifier works for C too)
+    classes = _extract_classes_from_tree(root_node)
+
+    # Extract global variable declarations (file-scope)
+    global_vars: list[dict] = []
+    if language_name in ("c", "cpp"):
+        global_vars = _extract_file_scope_vars(root_node, lang)
+
+    global_names = {g["name"] for g in global_vars}
+    var_access: dict[str, dict] = {}
+
+    # Second pass: extract calls AND variable access per function
     for node in funcs.get("function", []):
         name = _extract_function_name(node)
         if not name:
@@ -351,14 +362,10 @@ def _do_parse(file: Path, parser: Any, language_name: str = "") -> ParsedFile:
             )
         )
 
-    classes: list[str] = []
-    # Extract struct/class for both C and C++ (struct_specifier works for C too)
-    classes = _extract_classes_from_tree(root_node)
-
-    # Extract global variable declarations (file-scope)
-    global_vars: list[dict] = []
-    if language_name in ("c", "cpp"):
-        global_vars = _extract_file_scope_vars(root_node, lang)
+        if global_names:
+            writes, reads = _extract_var_access(node, lang, global_names)
+            if writes or reads:
+                var_access[name] = {"writes": writes, "reads": reads}
 
     return ParsedFile(
         path=str(file),
@@ -368,6 +375,7 @@ def _do_parse(file: Path, parser: Any, language_name: str = "") -> ParsedFile:
         classes=classes,
         language="",
         global_vars=global_vars,
+        var_access=var_access,
     )
 
 
