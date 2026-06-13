@@ -852,56 +852,58 @@ class TestCiCommand:
 class TestInit:
     """Tests for the ``init`` command."""
 
-    def test_creates_opencode_mcp_json(self, tmp_path):
+    def test_creates_opencode_json(self, tmp_path):
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        config_file = tmp_path / ".opencode" / "mcp.json"
+        config_file = tmp_path / ".opencode" / "opencode.json"
         assert config_file.exists()
         config = json.loads(config_file.read_text())
-        archai_cfg = config["mcpServers"]["archai"]
-        assert archai_cfg["command"] == "archai"
-        assert archai_cfg["args"] == ["serve"]
-        assert "description" in archai_cfg
-        # No environment block — archai needs no LLM config
-        assert "environment" not in archai_cfg
+        archai_cfg = config["mcp"]["archai"]
+        assert archai_cfg["type"] == "local"
+        assert archai_cfg["command"] == ["archai", "serve"]
+        assert archai_cfg["enabled"] is True
+        assert config["$schema"] == "https://opencode.ai/config.json"
+        # No env block — archai needs no LLM config
+        assert "env" not in archai_cfg
 
     def test_no_environment_passthrough(self, tmp_path):
         """Verify init does NOT add LLM environment passthrough."""
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        config = json.loads((tmp_path / ".opencode" / "mcp.json").read_text())
-        archai_cfg = config["mcpServers"]["archai"]
-        assert "environment" not in archai_cfg
+        config = json.loads((tmp_path / ".opencode" / "opencode.json").read_text())
+        archai_cfg = config["mcp"]["archai"]
+        assert "env" not in archai_cfg
         # Just the three fields
-        assert set(archai_cfg.keys()) == {"description", "command", "args"}
+        assert set(archai_cfg.keys()) == {"type", "command", "enabled"}
 
     def test_preserves_existing_config_when_archai_not_configured(self, tmp_path):
-        """If .opencode/mcp.json exists but archai is not configured, add it."""
+        """If .opencode/opencode.json exists but archai is not configured, add it."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "mcp.json"
+        config_file = config_dir / "opencode.json"
         config_file.write_text(json.dumps({"data": {"directory": ".opencode"}}))
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
         config = json.loads(config_file.read_text())
         assert config["data"]["directory"] == ".opencode"
-        archai_cfg = config["mcpServers"]["archai"]
-        assert archai_cfg["command"] == "archai"
-        assert archai_cfg["args"] == ["serve"]
+        archai_cfg = config["mcp"]["archai"]
+        assert archai_cfg["type"] == "local"
+        assert archai_cfg["command"] == ["archai", "serve"]
 
     def test_skips_if_already_configured(self, tmp_path):
         """If archai already configured, do nothing."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "mcp.json"
+        config_file = config_dir / "opencode.json"
         existing_config = {
-            "mcpServers": {
+            "$schema": "https://opencode.ai/config.json",
+            "mcp": {
                 "archai": {
-                    "description": "Architecture-aware AI coding assistant",
-                    "command": "archai",
-                    "args": ["serve"],
+                    "type": "local",
+                    "command": ["archai", "serve"],
+                    "enabled": True,
                 }
-            }
+            },
         }
         config_file.write_text(json.dumps(existing_config))
         result = runner.invoke(app, ["init", str(tmp_path)])
@@ -914,21 +916,22 @@ class TestInit:
         """If other MCP servers exist, keep them."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "mcp.json"
+        config_file = config_dir / "opencode.json"
         existing_config = {
-            "mcpServers": {
+            "mcp": {
                 "other-server": {
-                    "command": "other",
-                    "args": ["command"],
+                    "type": "local",
+                    "command": ["other", "command"],
+                    "enabled": True,
                 }
-            }
+            },
         }
         config_file.write_text(json.dumps(existing_config))
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
         config = json.loads(config_file.read_text())
-        assert "other-server" in config["mcpServers"]
-        assert "archai" in config["mcpServers"]
+        assert "other-server" in config["mcp"]
+        assert "archai" in config["mcp"]
 
 
 class TestInitErrors:
