@@ -3,8 +3,9 @@
 [![PyPI Version](https://img.shields.io/pypi/v/archai-mcp)](https://pypi.org/project/archai-mcp/)
 [![Python Versions](https://img.shields.io/pypi/pyversions/archai-mcp)](https://pypi.org/project/archai-mcp/)
 [![License](https://img.shields.io/pypi/l/archai-mcp)](https://github.com/CristianChachaLeon/arch-ai/blob/main/LICENSE)
+[![Coverage](https://img.shields.io/badge/coverage-94%25-green)](https://github.com/CristianChachaLeon/arch-ai)
 
-**Structural analysis engine for AI coding agents.** archai analyzes your repository's architecture and exposes it as MCP tools — no LLM needed, no API keys, zero configuration.
+**Structural analysis engine for AI coding agents.** archai analyzes your repository's architecture and exposes it as MCP tools + CLI — no LLM needed, no API keys, zero configuration.
 
 ```bash
 pip install archai-mcp
@@ -39,25 +40,40 @@ opencode .
 
 ## CLI Commands
 
+archai offers **12 commands** — one for every MCP tool plus utility commands:
+
 | Command | Description |
 |---------|-------------|
 | `archai init` | Configure the project for OpenCode MCP integration |
 | `archai serve` | Start MCP server (stdio, for AI agents) |
+| `archai analyze` | Show full architecture: clusters, dependencies, functions |
+| `archai context <query>` | Get architecture context relevant to a query |
+| `archai file <path>` | Detailed analysis of a single file |
+| `archai state [--var]` | Shared global state map: writers + readers per variable |
+| `archai trace <feature>` | Trace a feature's call flow through the codebase |
+| `archai blast <path>` | Analyze the impact of changing a file |
+| `archai validate <patch>` | Structural analysis of proposed code changes |
+| `archai check` | Architecture design rule checks (cyclic deps, forbidden imports) |
+| `archai ci` | Run archai checks for CI/CD pipelines (with exit code) |
 | `archai mcp` | Alias for `archai serve` (deprecated) |
 
-That's the entire surface. archai is designed to be used by AI agents through MCP, not by humans in a terminal.
+All analysis commands support `--json` for machine-readable output.
 
 ---
 
 ## MCP Tools
 
-archai exposes 3 structural analysis tools for AI agents:
+archai exposes **7 structural analysis tools** for AI agents:
 
-| Tool | Description |
-|------|-------------|
-| `get_architecture_context` | Returns clusters, dependency edges, and file relationships for a query |
-| `get_blast_radius` | Analyzes the impact of changing a file (dependents, subsystems) |
-| `validate_code_change` | Returns structural data about proposed changes for the agent to evaluate |
+| Tool | CLI | Description |
+|------|-----|-------------|
+| `get_architecture_context` | `archai context` | Focus cluster, cluster edges, file dependencies, test files for a query |
+| `get_file_detail` | `archai file` | Per-file analysis: functions, classes, imports, dependents |
+| `get_shared_state` | `archai state` | Global variable map showing which functions write/read each variable |
+| `trace_feature_flow` | `archai trace` | Entry point → call chain → shared state → risks |
+| `get_blast_radius` | `archai blast` | Impact analysis: dependents, transitive dependencies, affected subsystems |
+| `validate_code_change` | `archai validate` | Structural context about proposed changes (no "valid/invalid" judgment) |
+| `propose_change` | — | Given a change description, suggests affected files |
 
 ### How agents use it
 
@@ -69,11 +85,19 @@ Agent:
      ← focus cluster, all clusters, dependency edges, file deps
      → Agent's LLM infers: "auth depends on db, API depends on auth"
 
-  2. Writes code respecting inferred architecture
+  2. get_file_detail("src/auth/handler.py")
+     ← functions, classes, signatures in the auth module
+     → Agent knows what already exists
 
-  3. get_blast_radius("src/auth/login.py", repo_path, depth=2)
+  3. Writes code respecting inferred architecture
+
+  4. get_blast_radius("src/auth/login.py", repo_path, depth=2)
      ← affected files and subsystems
      → Agent's LLM assesses: "safe change, expected impact"
+
+  5. validate_code_change(repo_path, changes=[...])
+     ← structural context about the patch
+     → Agent can self-validate before submitting
 ```
 
 archai returns **raw structural data** — the agent's own LLM interprets it. This means:
@@ -105,20 +129,35 @@ No environment passthrough. No API keys. archai needs nothing but your files.
 ## How It Works
 
 ```
-                     archai MCP Server
-                     (no LLM, no API keys)
-                            │
-     ┌──────────────────────┼──────────────────────┐
-     │                      │                      │
-     ▼                      ▼                      ▼
-  Bootstrap             Clustering           Focus Resolution
-  • File discovery      • Directory prox.    • Query matching
-  • AST parsing         • Shared imports     • Subsystem rank
-  • Dependency graph    • Call density       • Test file detection
-  • Cycle detection
+                    ┌─────────────────────┐
+                    │   archai serve       │
+                    │  (MCP Server, no LLM)│
+                    └──────────┬──────────┘
+                               │
+         ┌─────────────────────┼─────────────────────┐
+         ▼                     ▼                     ▼
+   Bootstrap              Analysis              Resolution
+   ┌─────────────┐    ┌──────────────┐    ┌────────────────┐
+   │ File        │    │ Clustering   │    │ Focus matching │
+   │ discovery   │    │ • directory  │    │ Subsystem rank │
+   │ AST parsing │    │ • dependency │    │ Test file      │
+   │ Dependency  │    │ • call graph │    │ detection      │
+   │ graph       │    │              │    │                │
+   │ Var access  │    │ Shared state │    │ Trace flow     │
+   │ extraction  │    │ analysis     │    │ Blast radius   │
+   └─────────────┘    └──────────────┘    └────────────────┘
 ```
 
-archai is a **pure structural analysis engine**. It discovers files, builds a dependency graph, clusters them into logical subsystems, and exposes everything as structured data. No LLM involved.
+archai is a **pure structural analysis engine**. It discovers files, parses them with tree-sitter, builds a dependency graph, clusters them into logical subsystems, and exposes everything as structured data. No LLM involved.
+
+### Key features
+
+- **Multi-language** — Python, C, C++ via tree-sitter
+- **Intra-file clustering** — function-level dependency resolution for C/C++
+- **Variable access tracking** — shows which functions read/write each global variable
+- **Feature tracing** — entry point → call chain → shared state → risk assessment
+- **Blast radius** — transitive dependency impact analysis with configurable depth
+- **No LLM** — pure static analysis, runs offline, instant results
 
 ---
 
@@ -147,12 +186,6 @@ uv run pytest --cov=src --cov-report=html
 uv run black src/
 uv run ruff check src/
 ```
-
----
-
-## Architecture
-
-See `docs/003-sdd-agent-native-architecture.md` for the current architecture spec.
 
 ---
 
