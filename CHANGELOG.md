@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.5] - 2026-06-13
+
+### Added
+- Persistent disk cache for analysis results (`/tmp/archai_cache/`)
+- `--force` flag on `analyze` CLI to bypass all caches
+- SHA-256 based cache keys for repo path + context
+
 ## 0.4.4 (2026-06-13)
 
 - **New CLI command `archai context <query>`** — wraps `get_architecture_context` MCP tool (Fase 1.1 del roadmap)
