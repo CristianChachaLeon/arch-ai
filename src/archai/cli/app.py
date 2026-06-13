@@ -5,7 +5,6 @@ Provides commands for MCP server integration and project initialization.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import typer
@@ -46,15 +45,20 @@ def serve():
 @app.command()
 def init(
     project_dir: str = typer.Argument(".", help="Project directory to configure"),
+    agent: str = typer.Option(
+        "opencode",
+        "--agent",
+        help="AI coding assistant to configure (opencode, gemini, claude, cursor, all)",
+    ),
 ):
-    """Initialize archai in a project for OpenCode MCP integration.
+    """Initialize archai MCP server for an AI coding assistant.
 
-    Creates .opencode/opencode.json so OpenCode can discover and call
+    Creates the agent-specific config file so it can discover and call
     archai's architecture tools in this project.
     """
+    from archai.cli.adapters import resolve_adapters
+
     project_path = Path(project_dir).resolve()
-    config_dir = project_path / ".opencode"
-    config_file = config_dir / "opencode.json"
 
     # Warn about old config files that OpenCode ignores
     old_paths = [
@@ -71,45 +75,27 @@ def init(
                 )
             )
 
-    # Create .opencode/ directory if it doesn't exist
-    config_dir.mkdir(parents=True, exist_ok=True)
+    adapters = resolve_adapters(agent, project_path)
+    mcp_command = ["archai", "serve"]
 
-    # Read existing config or start fresh
-    existing = {}
-    if config_file.exists():
-        try:
-            existing = json.loads(config_file.read_text())
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-
-    mcp_servers = existing.get("mcp", {})
-    if not isinstance(mcp_servers, dict):
-        raise ValueError(
-            f"Invalid type for 'mcp' in .opencode/opencode.json: expected dict, got {type(mcp_servers).__name__} ({mcp_servers!r})"
-        )
-
-    if "archai" in mcp_servers:
-        typer.echo(
-            typer.style(
-                "\u2713 archai is already configured in this project.",
-                fg="green",
+    for adapter in adapters:
+        result = adapter.write(mcp_command)
+        if result is None:
+            config_rel = adapter.config_path().relative_to(project_path)
+            typer.echo(
+                typer.style(
+                    f"\u2713 archai is already configured in {config_rel}.",
+                    fg="green",
+                )
             )
-        )
-        raise typer.Exit(code=0)
-
-    existing.setdefault("mcp", {})["archai"] = {
-        "type": "local",
-        "command": ["archai", "serve"],
-        "enabled": True,
-    }
-
-    existing["$schema"] = "https://opencode.ai/config.json"
-
-    config_file.write_text(json.dumps(existing, indent=2) + "\n")
-
-    typer.echo(
-        typer.style("\u2713 Configured archai MCP server in .opencode/opencode.json", fg="green")
-    )
+        else:
+            config_rel = result.relative_to(project_path)
+            typer.echo(
+                typer.style(
+                    f"\u2713 Configured archai MCP server in {config_rel}",
+                    fg="green",
+                )
+            )
 
 
 @app.command()
