@@ -156,14 +156,14 @@ def analyze(
             result = asyncio.run(orch._get_pipeline_result(str(repo), force=force))
         except Exception as e:
             if json_output:
-                console.print(stdjson.dumps({"error": str(e)}))
+                typer.echo(stdjson.dumps({"error": str(e)}))
             else:
                 console.print(f"\n[red]✗ Error analyzing repository:[/red] {e}")
             raise typer.Exit(code=1)
 
     # JSON output
     if json_output:
-        console.print(stdjson.dumps(result.to_dict(), indent=2))
+        typer.echo(stdjson.dumps(result.to_dict(), indent=2))
         return
 
     # Summary
@@ -289,14 +289,14 @@ def file(
             result = asyncio.run(orch.get_file_detail(str(repo), file_path))
         except ValueError as e:
             if json_output:
-                console.print(stdjson.dumps({"error": str(e)}))
+                typer.echo(stdjson.dumps({"error": str(e)}))
             else:
                 console.print(f"\n[red]✗ Error:[/red] {e}")
             raise typer.Exit(code=1)
 
     # JSON output
     if json_output:
-        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        typer.echo(stdjson.dumps(result.model_dump(), indent=2, default=str))
         return
 
     # Pretty-print
@@ -420,13 +420,13 @@ def state(
             result = asyncio.run(orch.get_shared_state(str(repo), var))
         except Exception as e:
             if json_output:
-                console.print(stdjson.dumps({"error": str(e)}))
+                typer.echo(stdjson.dumps({"error": str(e)}))
             else:
                 console.print(f"\n[red]✗ Error analyzing shared state:[/red] {e}")
             raise typer.Exit(code=1)
 
     if json_output:
-        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        typer.echo(stdjson.dumps(result.model_dump(), indent=2, default=str))
         return
 
     console.print()
@@ -502,7 +502,7 @@ def context(
             result = asyncio.run(get_architecture_context(query, str(repo)))
         except Exception as e:
             if json_output:
-                console.print(stdjson.dumps({"error": str(e)}))
+                typer.echo(stdjson.dumps({"error": str(e)}))
             else:
                 console.print(f"\n[red]✗ Error:[/red] {e}")
             raise typer.Exit(code=1)
@@ -511,7 +511,7 @@ def context(
         data = stdjson.loads(result)
     except stdjson.JSONDecodeError:
         if json_output:
-            console.print(stdjson.dumps({"error": "invalid JSON from MCP tool"}))
+            typer.echo(stdjson.dumps({"error": "invalid JSON from MCP tool"}))
         else:
             console.print(
                 "\n[red]✗ Error:[/red] Invalid JSON response from architecture context tool"
@@ -520,13 +520,13 @@ def context(
 
     if "error" in data:
         if json_output:
-            console.print(result)
+            typer.echo(result)
         else:
             console.print(f"\n[red]✗ Error:[/red] {data['error']}")
         raise typer.Exit(code=1)
 
     if json_output:
-        console.print(result)
+        typer.echo(result)
         return
 
     console.print()
@@ -602,13 +602,13 @@ def trace(
             result = asyncio.run(orch.trace_feature_flow(str(repo), entry_point))
         except ValueError as e:
             if json_output:
-                console.print(stdjson.dumps({"error": str(e)}))
+                typer.echo(stdjson.dumps({"error": str(e)}))
             else:
                 console.print(f"\n[red]✗ Error:[/red] {e}")
             raise typer.Exit(code=1)
 
     if json_output:
-        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        typer.echo(stdjson.dumps(result.model_dump(), indent=2, default=str))
         return
 
     # Pretty-print
@@ -712,13 +712,13 @@ def blast(
             )
         except ValueError as e:
             if json_output:
-                console.print(stdjson.dumps({"error": str(e)}))
+                typer.echo(stdjson.dumps({"error": str(e)}))
             else:
                 console.print(f"\n[red]✗ Error:[/red] {e}")
             raise typer.Exit(code=1)
 
     if json_output:
-        console.print(stdjson.dumps(result.model_dump(), indent=2, default=str))
+        typer.echo(stdjson.dumps(result.model_dump(), indent=2, default=str))
         return
 
     console.print()
@@ -816,7 +816,7 @@ def validate(
             pipeline_result = asyncio.run(orch._get_pipeline_result(str(repo)))
         except Exception as e:
             if json_output:
-                console.print(stdjson.dumps({"error": str(e)}))
+                typer.echo(stdjson.dumps({"error": str(e)}))
             else:
                 console.print(f"\n[red]✗ Error:[/red] {e}")
             raise typer.Exit(code=1)
@@ -879,7 +879,7 @@ def validate(
 
     if json_output:
         out = structural_results if len(structural_results) > 1 else structural_results[0]
-        console.print(stdjson.dumps(out, indent=2, default=str))
+        typer.echo(stdjson.dumps(out, indent=2, default=str))
         return
 
     for item in structural_results:
