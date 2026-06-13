@@ -7,15 +7,6 @@
 
 **Structural analysis engine for AI coding agents.** archai analyzes your repository's architecture and exposes it as MCP tools + CLI — no LLM needed, no API keys, zero configuration.
 
-```bash
-pip install archai-mcp
-cd my-project
-archai init
-opencode .
-```
-
-The agent automatically uses archai's tools to understand your codebase before making changes.
-
 ---
 
 ## Quick Start
@@ -40,7 +31,7 @@ opencode .
 
 ## CLI Commands
 
-archai offers **10 commands** — one for every MCP tool plus utility commands:
+archai offers **12 commands** — one for every MCP tool plus utility commands:
 
 | Command | Description |
 |---------|-------------|
@@ -51,11 +42,21 @@ archai offers **10 commands** — one for every MCP tool plus utility commands:
 | `archai file <path>` | Detailed analysis of a single file |
 | `archai state [--var]` | Shared global state map: writers + readers per variable |
 | `archai trace <feature>` | Trace a feature's call flow through the codebase |
-| `archai blast <path>` | Analyze the impact of changing a file |
+| `archai blast <path>` | Impact of changing a file (or a function with `--function <name>`) |
 | `archai validate <patch>` | Structural analysis of proposed code changes |
-| `archai mcp` | Alias for `archai serve` (deprecated) |
 
-All analysis commands support `--json` for machine-readable output.
+All analysis commands support `--json` for machine-readable output. Use `archai --version` to check the installed version.
+
+### `archai analyze` flags
+
+| Flag | Description |
+|------|-------------|
+| `--clusters` / `--no-clusters` | Show or hide cluster analysis (default: True) |
+| `--deps` / `--no-deps` | Show or hide dependency analysis (default: True) |
+| `--functions` / `--no-functions` | Show or hide function-level analysis (default: True) |
+| `--sub-clusters` / `--no-sub-clusters` | Show or hide intra-file sub-cluster analysis (default: True) |
+| `--force` | Bypass disk cache and re-analyze from scratch |
+| `--json` | Machine-readable JSON output |
 
 ---
 
@@ -155,6 +156,7 @@ archai is a **pure structural analysis engine**. It discovers files, parses them
 - **Variable access tracking** — shows which functions read/write each global variable
 - **Feature tracing** — entry point → call chain → shared state → risk assessment
 - **Blast radius** — transitive dependency impact analysis with configurable depth
+- **Disk caching** — results cached in `/tmp/archai_cache/` for faster repeated analysis
 - **No LLM** — pure static analysis, runs offline, instant results
 
 ---

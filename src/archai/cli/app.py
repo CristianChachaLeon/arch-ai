@@ -186,7 +186,7 @@ def analyze(
             if n and n.imports:
                 branch = dep_tree.add(f"  📄 [bold]{node}[/bold]")
                 # Separate project imports from external (system/stdlib)
-                project_imports = [imp for imp in n.imports if imp != "external"]
+                project_imports = list(dict.fromkeys(imp for imp in n.imports if imp != "external"))
                 external_count = len(n.imports) - len(project_imports)
                 for imp in project_imports:
                     branch.add(f"  └> {imp}")
