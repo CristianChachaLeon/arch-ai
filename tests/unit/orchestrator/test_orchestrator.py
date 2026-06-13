@@ -1304,3 +1304,460 @@ class TestBlastRadius:
         assert result.direct_dependencies == []
         assert result.transitive_dependents == []
         assert result.subsystems_affected == {}
+
+
+class TestStripTestPrefix:
+    """Tests for _strip_test_prefix helper."""
+
+    def test_removes_test_prefix(self):
+        from archai.orchestrator.orchestrator import _strip_test_prefix
+
+        assert _strip_test_prefix("test_routes.py") == "routes.py"
+
+    def test_removes_test_suffix(self):
+        from archai.orchestrator.orchestrator import _strip_test_prefix
+
+        assert _strip_test_prefix("routes_test.py") == "routes.py"
+
+    def test_no_prefix_or_suffix(self):
+        from archai.orchestrator.orchestrator import _strip_test_prefix
+
+        assert _strip_test_prefix("routes.py") == "routes.py"
+
+
+class TestGetClusterEdges:
+    """Tests for get_cluster_edges helper."""
+
+    def test_basic_cluster_edges(self):
+        from archai.orchestrator.orchestrator import get_cluster_edges
+        import networkx as nx
+
+        g = nx.DiGraph()
+        g.add_edge("src/a.py", "src/b.py")
+        g.add_edge("src/a.py", "src/c.py")
+        clusters = {"cluster_a": ["src/a.py"], "cluster_b": ["src/b.py"], "cluster_c": ["src/c.py"]}
+
+        edges = get_cluster_edges(g, clusters)
+        assert len(edges) == 2
+        edge_pairs = {(e.from_cluster, e.to_cluster) for e in edges}
+        assert ("cluster_a", "cluster_b") in edge_pairs
+        assert ("cluster_a", "cluster_c") in edge_pairs
+
+    def test_file_not_in_graph_skipped(self):
+        from archai.orchestrator.orchestrator import get_cluster_edges
+        import networkx as nx
+
+        g = nx.DiGraph()
+        g.add_node("src/a.py")
+        clusters = {"cluster_a": ["src/a.py", "src/missing.py"]}
+
+        edges = get_cluster_edges(g, clusters)
+        # No error — missing file is simply skipped
+        assert edges == []
+
+    def test_multiple_files_same_edge(self):
+        """Multiple files from same cluster importing same target cluster should generate one edge."""
+        from archai.orchestrator.orchestrator import get_cluster_edges
+        import networkx as nx
+
+        g = nx.DiGraph()
+        g.add_edge("src/a1.py", "src/b.py")
+        g.add_edge("src/a2.py", "src/b.py")
+        clusters = {"cluster_a": ["src/a1.py", "src/a2.py"], "cluster_b": ["src/b.py"]}
+
+        edges = get_cluster_edges(g, clusters)
+        assert len(edges) == 1
+        assert edges[0].from_cluster == "cluster_a"
+        assert edges[0].to_cluster == "cluster_b"
+        assert len(edges[0].files) == 2
+
+
+class TestGetFileDependenciesExtended:
+    """Extended tests for get_file_dependencies helper."""
+
+    def test_get_file_dependencies_specific_files(self):
+        from archai.orchestrator.orchestrator import get_file_dependencies
+        import networkx as nx
+
+        g = nx.DiGraph()
+        g.add_edge("a.py", "b.py")
+        g.add_edge("a.py", "c.py")
+        g.add_edge("d.py", "e.py")
+
+        result = get_file_dependencies(g, files=["a.py"])
+        assert "a.py" in result
+        assert "d.py" not in result
+
+    def test_get_file_dependencies_node_not_in_graph(self):
+        """File not in graph should be simply skipped."""
+        from archai.orchestrator.orchestrator import get_file_dependencies
+        import networkx as nx
+
+        g = nx.DiGraph()
+        g.add_edge("a.py", "b.py")
+
+        result = get_file_dependencies(g, files=["nonexistent.py"])
+        assert result == {}
+
+
+class TestBlastRadiusExtended:
+    """Tests for function-level blast radius analysis."""
+
+    async def _make_function_blast_middleware(self):
+        from unittest.mock import AsyncMock
+        from archai.bootstrap.graph_builder import FileGraph, FunctionGraph, FunctionNode
+        import networkx as nx
+
+        fg = FunctionGraph()
+        fg.add_node(
+            "src/main.py::run",
+            FunctionNode(name="run", file_path="src/main.py", calls_internal=[], calls_external=[]),
+        )
+        fg.add_node(
+            "src/main.py::helper",
+            FunctionNode(
+                name="helper", file_path="src/main.py", calls_internal=[], calls_external=[]
+            ),
+        )
+        fg.graph.add_edge("src/main.py::run", "src/main.py::helper")
+
+        file_graph = nx.DiGraph()
+        file_graph.add_node("src/main.py")
+        fg_file = FileGraph(file_graph)
+
+        m = AsyncMock()
+        result = AsyncMock()
+        result.graph = fg_file
+        result.function_graph = fg
+        result.repo_path = "/fake/repo"
+        m.process.return_value = result
+        return m
+
+    async def test_blast_radius_with_function_name(self):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        middleware = await self._make_function_blast_middleware()
+        orch = ArchaiOrchestrator(middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/main.py", function_name="run")
+
+        assert result.function_name == "run"
+        assert "src/main.py::helper" in result.function_dependencies
+
+    async def test_blast_radius_function_not_found(self):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        middleware = await self._make_function_blast_middleware()
+        orch = ArchaiOrchestrator(middleware)
+
+        with pytest.raises(ValueError, match="missing key"):
+            await orch.get_blast_radius("/fake/repo", "src/main.py", function_name="nonexistent")
+
+
+class TestGetFileDetail:
+    """Tests for ArchaiOrchestrator.get_file_detail."""
+
+    @pytest.fixture
+    def detail_middleware(self):
+        from unittest.mock import AsyncMock
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+
+        file_nodes = [
+            FileNode(
+                path="src/main.py",
+                imports=["src/utils.py"],
+                functions=["run", "process"],
+                classes=["App"],
+            ),
+            FileNode(path="src/utils.py", imports=[]),
+        ]
+        fg = build_graph(file_nodes)
+        fg.graph.add_edge("src/main.py", "src/utils.py")
+
+        m = AsyncMock()
+        result = AsyncMock()
+        result.graph = fg
+        result.repo_path = "/fake/repo"
+        m.process.return_value = result
+        return m
+
+    async def test_get_file_detail_with_functions_and_classes(self, detail_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        def mock_get_cluster_for_file(file_path):
+            return "core" if file_path == "src/main.py" else None
+
+        detail_middleware.process.return_value.get_cluster_for_file = mock_get_cluster_for_file
+
+        orch = ArchaiOrchestrator(detail_middleware)
+        result = await orch.get_file_detail("/fake/repo", "src/main.py")
+
+        assert result.file_path == "src/main.py"
+        assert result.cluster == "core"
+        assert len(result.functions) == 2
+        assert len(result.classes) == 1
+        assert result.imports == ["src/utils.py"]
+        assert result.dependents == []
+
+    async def test_get_file_detail_not_in_graph(self, detail_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(detail_middleware)
+
+        with pytest.raises(ValueError, match="not found in dependency graph"):
+            await orch.get_file_detail("/fake/repo", "src/nonexistent.py")
+
+
+class TestGetStructuralContext:
+    """Tests for ArchaiOrchestrator.get_structural_context."""
+
+    async def test_get_structural_context_returns_packet(self, mock_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+        from archai.models import StructuralContext
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        result = await orch.get_structural_context("http", "/fake/repo")
+
+        assert isinstance(result, StructuralContext)
+        assert result.focus_cluster == "api"
+        assert "src/api/routes.py" in result.focus_files
+        assert isinstance(result.cluster_edges, list)
+        assert isinstance(result.file_dependencies, dict)
+        assert isinstance(result.test_files, list)
+
+    async def test_get_structural_context_with_force(self, mock_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+        result = await orch.get_structural_context("http", "/fake/repo", force=True)
+
+        assert result.focus_cluster == "api"
+
+
+class TestProposeChange:
+    """Tests for ArchaiOrchestrator.propose_change."""
+
+    async def test_propose_change_returns_suggestions(self):
+        from unittest.mock import AsyncMock
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+        import networkx as nx
+
+        g = nx.DiGraph()
+        g.add_node("src/api/routes.py")
+        g.add_node("src/core/engine.py")
+        g.add_node("external")
+
+        m = AsyncMock()
+        result = AsyncMock()
+        result.graph.graph = g
+        result.repo_path = "/fake/repo"
+        result.clusters = {}
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        response = await orch.propose_change("/fake/repo", "add api route")
+
+        assert "description" in response
+        assert "suggested_files" in response
+        assert "src/api/routes.py" in response["suggested_files"]
+
+    async def test_propose_change_no_keyword_matches(self):
+        from unittest.mock import AsyncMock
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+        import networkx as nx
+
+        g = nx.DiGraph()
+        g.add_node("src/core/engine.py")
+
+        m = AsyncMock()
+        result = AsyncMock()
+        result.graph.graph = g
+        result.repo_path = "/fake/repo"
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        response = await orch.propose_change("/fake/repo", "zzzznonexistent")
+
+        assert response["total_matches"] == 0
+        assert response["suggested_files"] == []
+
+
+class TestBuildFileToSubsystem:
+    """Tests for _build_file_to_subsystem helper."""
+
+    def test_with_labeled_clusters(self):
+        from archai.orchestrator.orchestrator import _build_file_to_subsystem
+        from unittest.mock import MagicMock
+        from archai.models import LabeledCluster
+
+        result = MagicMock()
+        result.labeled_clusters = [
+            LabeledCluster(
+                cluster_id="api",
+                files=["src/api/routes.py"],
+                name="API Layer",
+                description="",
+                reasoning="",
+            ),
+        ]
+        result.clusters = {"api": ["src/api/routes.py"]}
+
+        mapping = _build_file_to_subsystem(result)
+        assert mapping["src/api/routes.py"] == "API Layer"
+
+    def test_without_labeled_clusters(self):
+        from archai.orchestrator.orchestrator import _build_file_to_subsystem
+        from unittest.mock import MagicMock
+
+        result = MagicMock()
+        result.labeled_clusters = None
+        result.clusters = {"api": ["src/api/routes.py"], "core": ["src/core/engine.py"]}
+
+        mapping = _build_file_to_subsystem(result)
+        assert mapping["src/api/routes.py"] == "api"
+        assert mapping["src/core/engine.py"] == "core"
+
+
+class TestValidateChangesExtended:
+    """Extended tests for validate_changes edge cases."""
+
+    async def test_validate_changes_cluster_without_label(self, base_clusters):
+        """File in a known cluster but no labeled_clusters should pass."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+        from archai.middleware.pipeline import PipelineResult
+        from unittest.mock import AsyncMock
+
+        labeled = [
+            LabeledCluster(
+                cluster_id="api",
+                files=["src/api/routes.py"],
+                name="API Layer",
+                description="",
+                reasoning="",
+                async_only=True,
+            ),
+        ]
+        m = AsyncMock()
+        result = PipelineResult(
+            repo_path="/fake/repo",
+            graph=AsyncMock(),
+            clusters=base_clusters,
+            file_count=5,
+            edge_count=2,
+            cluster_count=2,
+            labeled_clusters=labeled,
+        )
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        changes = [
+            ChangeItem(file_path="src/core/engine.py", patch="x = 1"),
+        ]
+        response = await orch.validate_changes("/fake/repo", changes)
+
+        # engine.py is in "core" cluster, but no LabeledCluster for "core"
+        # → cluster is not in label_lookup → continue (no violation)
+        assert response.valid is True
+
+    async def test_validate_changes_no_blocking_io_match(self, base_clusters):
+        """Blocking I/O pattern check when async_only but patch is clean."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+        from archai.middleware.pipeline import PipelineResult
+        from unittest.mock import AsyncMock
+
+        labeled = [
+            LabeledCluster(
+                cluster_id="api",
+                files=["src/api/routes.py"],
+                name="API Layer",
+                description="",
+                reasoning="",
+                async_only=True,
+            ),
+        ]
+        m = AsyncMock()
+        result = PipelineResult(
+            repo_path="/fake/repo",
+            graph=AsyncMock(),
+            clusters=base_clusters,
+            file_count=5,
+            edge_count=2,
+            cluster_count=2,
+            labeled_clusters=labeled,
+        )
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        changes = [
+            ChangeItem(file_path="src/api/routes.py", patch="async def get():\n    pass"),
+        ]
+        response = await orch.validate_changes("/fake/repo", changes)
+
+        assert response.valid is True
+
+    async def test_validate_changes_forbidden_dependency_match(self, base_clusters):
+        """Forbidden dependency regex should match import statements."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+        from archai.middleware.pipeline import PipelineResult
+        from unittest.mock import AsyncMock
+
+        labeled = [
+            LabeledCluster(
+                cluster_id="api",
+                files=["src/api/routes.py"],
+                name="API Layer",
+                description="",
+                reasoning="",
+                forbidden_dependencies=["os"],
+            ),
+        ]
+        m = AsyncMock()
+        result = PipelineResult(
+            repo_path="/fake/repo",
+            graph=AsyncMock(),
+            clusters=base_clusters,
+            file_count=5,
+            edge_count=2,
+            cluster_count=2,
+            labeled_clusters=labeled,
+        )
+        m.process.return_value = result
+
+        orch = ArchaiOrchestrator(m)
+        changes = [
+            ChangeItem(file_path="src/api/routes.py", patch="import os\n\ndef run():\n    pass"),
+        ]
+        response = await orch.validate_changes("/fake/repo", changes)
+
+        assert response.valid is False
+        assert response.violations[0].rule == "forbidden_dependency"
+
+
+class TestGetPipelineResultExtended:
+    """Extended tests for _get_pipeline_result edge cases."""
+
+    async def test_force_calls_process_again(self, mock_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(mock_middleware)
+
+        # First call populates cache
+        await orch.get_context("http", "/fake/repo")
+        assert mock_middleware.process.await_count == 1
+
+        # Force should bypass cache and process again
+        await orch.get_context("db", "/fake/repo", force=True)
+        assert mock_middleware.process.await_count == 2
+
+
+class TestGetContextExtended:
+    """Extended tests for get_context edge cases."""
+
+    async def test_unknown_focus_no_labeled_clusters(self, cluster_aware_middleware):
+        """Focus 'unknown' should produce empty subgraph with labeled clusters available."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(cluster_aware_middleware)
+        packet = await orch.get_context("nonexistent", "/fake/repo")
+
+        assert packet.focus == "unknown"
+        assert packet.subgraph == []
