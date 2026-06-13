@@ -9,7 +9,9 @@ from pathlib import Path
 from archai.bootstrap.ast_parser import (
     get_classes,
     get_functions,
+    get_global_vars,
     get_imports,
+    get_var_access,
     parse_python_file,
 )
 from archai.bootstrap.dependency_resolver import _is_stdlib_module, _resolve_single_import
@@ -39,6 +41,8 @@ class PythonLangHandler:
             functions=get_functions(tree),
             classes=get_classes(tree),
             language="python",
+            global_vars=get_global_vars(tree),
+            var_access=get_var_access(tree),
         )
 
     def _build_indices(self, all_files: set[str]) -> tuple[dict[str, str], dict[str, str]]:
