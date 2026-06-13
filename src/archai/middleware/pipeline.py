@@ -13,7 +13,9 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import pickle
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -36,20 +38,65 @@ logger = logging.getLogger(__name__)
 class ArchaiMiddleware:
     """Main middleware that orchestrates the bootstrap + inference pipeline."""
 
+    _cache_dir = Path("/tmp/archai_cache")
+
     def __init__(self):
         """Initialize the middleware."""
+        self._result_cache: dict[str, PipelineResult] = {}
         logger.info("ArchaiMiddleware initialized")
 
-    async def process(self, repo_path: str | Path) -> PipelineResult:
+    def _cache_key(self, repo_path: str, context: str | None) -> str:
+        """Generate SHA-256 hex digest key from repo_path and context."""
+        raw = f"{repo_path}:::{context or ''}"
+        return hashlib.sha256(raw.encode()).hexdigest()
+
+    def _save_to_disk(self, key: str, result: PipelineResult) -> None:
+        """Pickle result to disk cache."""
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        path = self._cache_dir / f"{key}.pkl"
+        with open(path, "wb") as f:
+            pickle.dump(result, f)
+
+    def _load_from_disk(self, key: str) -> PipelineResult | None:
+        """Load pickled result from disk cache, or None if missing/corrupt."""
+        path = self._cache_dir / f"{key}.pkl"
+        if not path.exists():
+            return None
+        try:
+            with open(path, "rb") as f:
+                return pickle.load(f)
+        except (pickle.UnpicklingError, EOFError):
+            return None
+
+    async def process(
+        self,
+        repo_path: str | Path,
+        context: str | None = None,
+        force: bool = False,
+    ) -> PipelineResult:
         """Process a repository through the full pipeline.
 
         Args:
             repo_path: Path to the repository to process
+            context: Optional context string for cache key
+            force: If True, bypass all caches and re-process
 
         Returns:
             PipelineResult containing graph, clusters, and metadata
         """
         logger.info(f"Processing repository: {repo_path}")
+
+        key = None
+        if not force:
+            key = self._cache_key(str(repo_path), context)
+            cached = self._load_from_disk(key)
+            if cached is not None:
+                self._result_cache[key] = cached
+                logger.info(f"Loaded from disk cache: {key[:8]}...")
+                return cached
+            if key in self._result_cache:
+                logger.info(f"Loaded from memory cache: {key[:8]}...")
+                return self._result_cache[key]
 
         # Step 1-4: Bootstrap
         file_nodes, graph = self._run_bootstrap(repo_path)
@@ -78,6 +125,10 @@ class ArchaiMiddleware:
             sub_clusters=sub_clusters,
             function_graph=function_graph,
         )
+
+        if not force and key is not None:
+            self._save_to_disk(key, result)
+            self._result_cache[key] = result
 
         logger.info(
             f"Pipeline complete: {result.file_count} files, "
