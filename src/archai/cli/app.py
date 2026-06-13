@@ -187,8 +187,13 @@ def analyze(
             n = result.graph.get_node(node)
             if n and n.imports:
                 branch = dep_tree.add(f"  📄 [bold]{node}[/bold]")
-                for imp in n.imports:
+                # Separate project imports from external (system/stdlib)
+                project_imports = [imp for imp in n.imports if imp != "external"]
+                external_count = len(n.imports) - len(project_imports)
+                for imp in project_imports:
                     branch.add(f"  └> {imp}")
+                if external_count:
+                    branch.add(f"  [dim]└> ... and {external_count} external dependencies[/dim]")
 
         if dep_tree.children:
             console.print(dep_tree)
