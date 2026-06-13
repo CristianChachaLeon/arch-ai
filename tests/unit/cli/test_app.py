@@ -56,10 +56,6 @@ class TestCliHelp:
         result = runner.invoke(app, ["serve", "--help"])
         assert result.exit_code == 0
 
-    def test_mcp_help(self):
-        result = runner.invoke(app, ["mcp", "--help"])
-        assert result.exit_code == 0
-
     def test_init_help(self):
         result = runner.invoke(app, ["init", "--help"])
         assert result.exit_code == 0
@@ -72,12 +68,6 @@ class TestServeCommand:
     def test_serve_invokes_run(self):
         with mock.patch("archai.mcp_server.mcp") as mock_mcp:
             result = runner.invoke(app, ["serve"])
-            assert result.exit_code == 0
-            mock_mcp.run.assert_called_once_with(transport="stdio")
-
-    def test_mcp_alias_invokes_serve(self):
-        with mock.patch("archai.mcp_server.mcp") as mock_mcp:
-            result = runner.invoke(app, ["mcp"])
             assert result.exit_code == 0
             mock_mcp.run.assert_called_once_with(transport="stdio")
 

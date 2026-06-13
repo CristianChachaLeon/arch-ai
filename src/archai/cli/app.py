@@ -43,12 +43,6 @@ def serve():
     mcp_app.run(transport="stdio")
 
 
-@app.command(deprecated=True)
-def mcp():
-    """Alias for 'archai serve'. Use 'archai serve' instead."""
-    serve()
-
-
 @app.command()
 def init(
     project_dir: str = typer.Argument(".", help="Project directory to configure"),
