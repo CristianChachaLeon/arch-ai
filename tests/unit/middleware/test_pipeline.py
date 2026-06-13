@@ -170,3 +170,62 @@ class TestVarAccessPipeline:
 
         process_reads = main_node.var_access["process"]["reads"]
         assert any(r["name"] == "debug" for r in process_reads)
+
+
+class TestImportDeduplication:
+    """Tests for import deduplication in FileNode."""
+
+    @pytest.fixture
+    def repo_with_multi_imports(self, tmp_path):
+        """Create a repo where a file imports multiple symbols from the same module."""
+        (tmp_path / "iterutils.py").write_text("def first(): pass\ndef second(): pass\n")
+
+        (tmp_path / "main.py").write_text(
+            """from iterutils import first, second
+
+from iterutils import third
+
+
+def run():
+    pass
+"""
+        )
+        return tmp_path
+
+    @pytest.fixture
+    def repo_with_dup_import_lines(self, tmp_path):
+        """Create a repo with repeated same-line imports."""
+        (tmp_path / "mylib.py").write_text("def a(): pass\n")
+
+        (tmp_path / "main.py").write_text(
+            """from mylib import a
+from mylib import a
+
+
+def run():
+    pass
+"""
+        )
+        return tmp_path
+
+    async def test_no_duplicate_imports_from_multi_symbol(self, repo_with_multi_imports):
+        """Multiple symbols from same module should be deduped to one entry."""
+        middleware = ArchaiMiddleware()
+        file_nodes, _ = middleware._run_bootstrap(str(repo_with_multi_imports))
+
+        main_node = next((fn for fn in file_nodes if fn.path == "main.py"), None)
+        assert main_node is not None
+        assert len(main_node.imports) == len(set(main_node.imports)), (
+            f"Expected no duplicates, got: {main_node.imports}"
+        )
+
+    async def test_no_duplicate_imports_from_repeated_lines(self, repo_with_dup_import_lines):
+        """Repeated import lines for same module should be deduped."""
+        middleware = ArchaiMiddleware()
+        file_nodes, _ = middleware._run_bootstrap(str(repo_with_dup_import_lines))
+
+        main_node = next((fn for fn in file_nodes if fn.path == "main.py"), None)
+        assert main_node is not None
+        assert len(main_node.imports) == len(set(main_node.imports)), (
+            f"Expected no duplicates, got: {main_node.imports}"
+        )

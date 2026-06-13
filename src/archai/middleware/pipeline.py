@@ -231,6 +231,8 @@ class ArchaiMiddleware:
                 if resolved:
                     resolved_imports.append(resolved)
 
+            resolved_imports = list(dict.fromkeys(resolved_imports))
+
             file_nodes.append(
                 FileNode(
                     path=parsed.path,
