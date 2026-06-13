@@ -123,6 +123,14 @@ class BlastRadiusResponse(BaseModel):
     function_name: str | None = None
     function_dependents: list[str] = []
     function_dependencies: list[str] = []
+    implemented_headers: list[str] = Field(
+        default_factory=list,
+        description="Headers that this .c file implements (C/C++ .c → .h mapping)",
+    )
+    implemented_by: list[str] = Field(
+        default_factory=list,
+        description="Implementation files that define this header (C/C++ .h → .c mapping)",
+    )
 
 
 class ValidateChangeResponse(BaseModel):

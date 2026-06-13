@@ -1306,6 +1306,170 @@ class TestBlastRadius:
         assert result.subsystems_affected == {}
 
 
+class TestBlastRadiusWithCMapping:
+    """Test suite for blast radius with C/C++ .c ↔ .h mapping."""
+
+    @pytest.fixture
+    def c_blast_graph(self):
+        """Build a C/C++ dependency graph with .c ↔ .h mapping.
+
+        Edge semantics: A → B means "A imports B"
+
+        Graph structure:
+            src/app/main.c → src/core/engine.h
+            src/core/engine.c → src/core/models.h
+            src/core/engine.h → src/core/models.h
+            src/core/utils.c → src/core/models.h
+
+        .c ↔ .h mapping:
+            src/core/engine.c ↔ src/core/engine.h
+            src/core/utils.c ↔ src/core/utils.h  (utils.h not imported by anyone)
+            src/core/models.h has no corresponding .c (standalone header)
+        """
+        import networkx as nx
+        from archai.bootstrap.graph_builder import FileGraph, FileNode
+
+        graph = nx.DiGraph()
+        edges = [
+            ("src/app/main.c", "src/core/engine.h"),
+            ("src/core/engine.c", "src/core/models.h"),
+            ("src/core/engine.h", "src/core/models.h"),
+            ("src/core/utils.c", "src/core/models.h"),
+        ]
+        for u, v in edges:
+            graph.add_edge(u, v)
+
+        all_nodes = set()
+        for u, v in edges:
+            all_nodes.add(u)
+            all_nodes.add(v)
+        all_nodes.add("src/core/utils.h")
+        for node in all_nodes:
+            if node not in graph:
+                graph.add_node(node)
+
+        fg = FileGraph(graph)
+        for node in all_nodes:
+            fg._nodes[node] = FileNode(path=node)
+        return fg
+
+    @pytest.fixture
+    def c_blast_clusters(self):
+        return {
+            "app": ["src/app/main.c"],
+            "core": [
+                "src/core/engine.c",
+                "src/core/engine.h",
+                "src/core/utils.c",
+                "src/core/utils.h",
+                "src/core/models.h",
+            ],
+        }
+
+    @pytest.fixture
+    def c_blast_middleware(self, c_blast_graph, c_blast_clusters):
+        from unittest.mock import AsyncMock
+
+        m = AsyncMock()
+        result = PipelineResult(
+            repo_path="/fake/repo",
+            graph=c_blast_graph,
+            clusters=c_blast_clusters,
+            file_count=6,
+            edge_count=4,
+            cluster_count=2,
+            labeled_clusters=None,
+            header_map={
+                "src/core/engine.c": "src/core/engine.h",
+                "src/core/engine.h": "src/core/engine.c",
+                "src/core/utils.c": "src/core/utils.h",
+                "src/core/utils.h": "src/core/utils.c",
+            },
+        )
+        m.process.return_value = result
+        return m
+
+    async def test_c_file_shows_implemented_header(self, c_blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(c_blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.c")
+
+        assert result.implemented_headers == ["src/core/engine.h"]
+
+    async def test_h_file_shows_implemented_by(self, c_blast_middleware):
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(c_blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.h")
+
+        assert result.implemented_by == ["src/core/engine.c"]
+
+    async def test_c_file_includes_header_dependents(self, c_blast_middleware):
+        """When querying blast radius for a .c file, dependents of its .h should be included."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(c_blast_middleware)
+
+        # src/core/engine.c has no direct dependents (no one imports .c files)
+        # But its .h (engine.h) is imported by src/app/main.c
+        # So main.c should appear as a dependent
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.c")
+
+        assert "src/app/main.c" in result.direct_dependents
+        # engine.c imports models.h → direct dependency
+        assert "src/core/models.h" in result.direct_dependencies
+
+    async def test_standalone_header_no_c_file(self, c_blast_middleware):
+        """A .h without a .c should have empty implemented_by."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(c_blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/models.h")
+
+        assert result.implemented_by == []
+        # Direct dependents: files that import models.h
+        assert set(result.direct_dependents) == {
+            "src/core/engine.c",
+            "src/core/engine.h",
+            "src/core/utils.c",
+        }
+
+    async def test_c_file_without_header_no_extra_mapping(self, c_blast_middleware):
+        """A .c file without a .h counterpart should have empty implemented_headers."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(c_blast_middleware)
+
+        # The mapping doesn't include src/app/main.c → it has no .h
+        result = await orch.get_blast_radius("/fake/repo", "src/app/main.c")
+
+        assert result.implemented_headers == []
+        assert result.direct_dependents == []
+
+    async def test_h_file_shows_dependents_correctly(self, c_blast_middleware):
+        """Querying a .h shows its direct dependents (files that include it)."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(c_blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.h")
+
+        # engine.h is imported by src/app/main.c
+        assert result.direct_dependents == ["src/app/main.c"]
+        # engine.h imports models.h
+        assert result.direct_dependencies == ["src/core/models.h"]
+
+    async def test_header_mapping_does_not_affect_non_c_files(self, blast_middleware):
+        """Python files should not be affected by C/C++ header mapping."""
+        from archai.orchestrator.orchestrator import ArchaiOrchestrator
+
+        orch = ArchaiOrchestrator(blast_middleware)
+        result = await orch.get_blast_radius("/fake/repo", "src/core/engine.py")
+
+        assert result.implemented_headers == []
+        assert result.implemented_by == []
+
+
 class TestStripTestPrefix:
     """Tests for _strip_test_prefix helper."""
 

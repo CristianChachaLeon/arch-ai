@@ -28,6 +28,7 @@ from archai.bootstrap import (
     ParsedFile,
     LangHandler,
 )
+from archai.bootstrap.c_mapping import build_c_h_mapping
 from archai.bootstrap.graph_builder import build_function_graph
 from archai.inference.clustering import cluster_files, cluster_functions
 from archai.models import LabeledCluster
@@ -109,6 +110,9 @@ class ArchaiMiddleware:
             if function_graph.node_count > 0:
                 sub_clusters = cluster_functions(function_graph)
 
+        # Step 4.6: Build .c ↔ .h mapping for C/C++ blast radius
+        header_map = build_c_h_mapping(file_nodes, str(repo_path))
+
         # Step 5: Inference (clustering)
         clusters = self._run_inference(graph)
 
@@ -124,6 +128,7 @@ class ArchaiMiddleware:
             labeled_clusters=labeled_clusters,
             sub_clusters=sub_clusters,
             function_graph=function_graph,
+            header_map=header_map,
         )
 
         if not force and key is not None:
@@ -277,6 +282,7 @@ class PipelineResult:
         labeled_clusters: list[LabeledCluster] | None = None,
         sub_clusters: dict[str, dict[str, list[str]]] | None = None,
         function_graph=None,
+        header_map: dict[str, str] | None = None,
     ):
         self.repo_path = repo_path
         self.graph = graph
@@ -287,6 +293,7 @@ class PipelineResult:
         self.labeled_clusters = labeled_clusters
         self.sub_clusters = sub_clusters or {}
         self.function_graph = function_graph
+        self.header_map = header_map or {}
 
     def get_cluster_for_file(self, file_path: str) -> Optional[str]:
         """Find which cluster a file belongs to."""
