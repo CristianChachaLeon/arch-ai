@@ -25,13 +25,11 @@ opencode .
 # → The agent has archai tools available automatically
 ```
 
-**That's it.** No API keys, no `ARCHAI_LLM_MODEL`, no `.env` file.
-
 ---
 
 ## CLI Commands
 
-archai offers **12 commands** — one for every MCP tool plus utility commands:
+archai offers **10 commands** — one for every MCP tool plus utility commands:
 
 | Command | Description |
 |---------|-------------|
