@@ -178,7 +178,7 @@ class TestImportDeduplication:
     @pytest.fixture
     def repo_with_multi_imports(self, tmp_path):
         """Create a repo where a file imports multiple symbols from the same module."""
-        (tmp_path / "iterutils.py").write_text("def first(): pass\ndef second(): pass\n")
+        (tmp_path / "iterutils.py").write_text("def first(): pass\ndef second(): pass\ndef third(): pass\n")
 
         (tmp_path / "main.py").write_text(
             """from iterutils import first, second
