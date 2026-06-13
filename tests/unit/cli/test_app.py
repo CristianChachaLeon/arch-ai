@@ -183,6 +183,195 @@ class TestStateCommand:
             assert "debug_mode" in result_invoke.output
             assert "counter" not in result_invoke.output
 
+    def test_state_no_variables_pretty(self, tmp_path):
+        """Test state command pretty output with no variables."""
+        from unittest.mock import AsyncMock, patch
+
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+        from archai.middleware.pipeline import PipelineResult
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        file_nodes = [FileNode(path="main.c")]
+        graph = build_graph(file_nodes)
+        result = PipelineResult(
+            repo_path=str(project),
+            graph=graph,
+            clusters={},
+            file_count=1,
+            edge_count=0,
+            cluster_count=0,
+        )
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware:
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock(return_value=result)
+            result_invoke = runner.invoke(app, ["state", str(project)])
+            assert result_invoke.exit_code == 0
+            assert "No global variables found" in result_invoke.output
+
+    def test_state_most_written_read_output(self, tmp_path):
+        """Test state command shows most written/read."""
+        from unittest.mock import AsyncMock, patch
+
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+        from archai.middleware.pipeline import PipelineResult
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        file_nodes = [
+            FileNode(
+                path="main.c",
+                imports=[],
+                functions=[],
+                classes=[],
+                global_vars=[{"name": "verbose", "line": 1, "is_static": False}],
+                var_access={
+                    "main": {
+                        "writes": [{"name": "verbose", "line": 5}],
+                        "reads": [{"name": "verbose", "line": 6}],
+                    },
+                },
+            ),
+        ]
+        graph = build_graph(file_nodes)
+        result = PipelineResult(
+            repo_path=str(project),
+            graph=graph,
+            clusters={},
+            file_count=1,
+            edge_count=0,
+            cluster_count=0,
+        )
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware:
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock(return_value=result)
+            result_invoke = runner.invoke(app, ["state", str(project)])
+            assert result_invoke.exit_code == 0
+            assert "Most written" in result_invoke.output
+            assert "verbose" in result_invoke.output
+
+
+class TestContextCommand:
+    """Tests for the ``context`` command."""
+
+    def test_context_help(self):
+        result = runner.invoke(app, ["context", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Get architecture context" in plain
+        assert "QUERY" in plain
+        assert "--json" in plain
+
+    def test_context_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["context", "auth", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    def test_context_pretty_output(self, tmp_path):
+        import json as stdjson
+        from unittest.mock import patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        mock_json = stdjson.dumps(
+            {
+                "focus_cluster": "core",
+                "focus_files": ["src/main.py", "src/utils.py"],
+                "focus_reasoning": "matches auth-related files",
+                "all_clusters": {
+                    "core": ["src/main.py", "src/utils.py"],
+                    "tests": ["tests/test_main.py"],
+                },
+                "cluster_edges": [
+                    {"from_cluster": "core", "to_cluster": "tests"},
+                ],
+                "file_dependencies": {"src/main.py": ["src/utils.py"]},
+                "test_files": ["tests/test_main.py"],
+                "sub_clusters": {},
+                "metadata": {"source": "orchestrator", "cluster_count": 2},
+            }
+        )
+
+        with patch("archai.mcp_server.get_architecture_context") as mock_func:
+            mock_func.return_value = mock_json
+
+            result_invoke = runner.invoke(app, ["context", "auth", str(project)])
+            assert result_invoke.exit_code == 0
+            assert "core" in result_invoke.output
+            assert "src/main.py" in result_invoke.output
+            assert "src/utils.py" in result_invoke.output
+            assert "tests/test_main.py" in result_invoke.output
+            assert "auth" in result_invoke.output or "matches" in result_invoke.output
+
+    def test_context_json_output(self, tmp_path):
+        import json as stdjson
+        from unittest.mock import patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        mock_json = stdjson.dumps(
+            {
+                "focus_cluster": "core",
+                "focus_files": ["src/main.py"],
+                "focus_reasoning": "matches query",
+                "all_clusters": {"core": ["src/main.py"]},
+                "cluster_edges": [],
+                "file_dependencies": {},
+                "test_files": [],
+                "sub_clusters": {},
+                "metadata": {"source": "orchestrator", "cluster_count": 1},
+            }
+        )
+
+        with patch("archai.mcp_server.get_architecture_context") as mock_func:
+            mock_func.return_value = mock_json
+
+            result_invoke = runner.invoke(app, ["context", "auth", str(project), "--json"])
+            assert result_invoke.exit_code == 0
+            parsed = stdjson.loads(result_invoke.output)
+            assert parsed["focus_cluster"] == "core"
+            assert len(parsed["focus_files"]) == 1
+            assert parsed["focus_files"][0] == "src/main.py"
+
+    def test_context_process_error(self, tmp_path):
+        from unittest.mock import patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.mcp_server.get_architecture_context") as mock_func:
+            mock_func.side_effect = RuntimeError("context error")
+
+            result_invoke = runner.invoke(app, ["context", "auth", str(project)])
+            assert result_invoke.exit_code == 1
+            assert "Error" in result_invoke.output
+            assert "context error" in result_invoke.output
+
+    def test_context_json_error(self, tmp_path):
+        from unittest.mock import patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.mcp_server.get_architecture_context") as mock_func:
+            mock_func.side_effect = RuntimeError("context error")
+
+            result_invoke = runner.invoke(app, ["context", "auth", str(project), "--json"])
+            assert result_invoke.exit_code == 1
+            assert "context error" in result_invoke.output
+
 
 class TestTraceCommand:
     """Tests for the ``trace`` command."""
@@ -278,6 +467,153 @@ class TestTraceCommand:
             assert parsed["entry_point"] == "run"
             assert parsed["functions_traced"] == 2
             assert "cfg" in parsed["shared_state"]
+
+    def test_trace_pretty_no_call_chain_with_effects(self, tmp_path):
+        """Test trace pretty output without call chain but with shared state, side effects, risks."""
+        from unittest.mock import AsyncMock, patch
+
+        from archai.models import Risk, SideEffect
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        mock_result = _make_mock_trace_result(
+            call_chain=[],
+            shared_state=["cfg"],
+            side_effects=[SideEffect(type="fork", description="Process creation via fork")],
+            risks=[Risk(severity="high", description="Fork risk")],
+        )
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance.trace_feature_flow = AsyncMock(return_value=mock_result)
+
+            result_invoke = runner.invoke(app, ["trace", "main", str(project)])
+            assert result_invoke.exit_code == 0
+            assert "cfg" in result_invoke.output
+            assert "fork" in result_invoke.output
+            assert "HIGH" in result_invoke.output
+
+
+class TestAnalyzeCommand:
+    """Tests for the ``analyze`` command."""
+
+    def test_analyze_help(self):
+        result = runner.invoke(app, ["analyze", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Analyze a repository" in plain
+
+    def test_analyze_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["analyze", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    def test_analyze_pretty_output(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+        from archai.middleware.pipeline import PipelineResult
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        file_nodes = [
+            FileNode(
+                path="src/main.py",
+                imports=["src/utils.py"],
+                functions=["run", "process", "init", "handle", "cleanup", "extra"],
+                classes=["App", "Config"],
+            ),
+            FileNode(path="src/utils.py", imports=[], functions=["helper"]),
+        ]
+        graph = build_graph(file_nodes)
+        result = PipelineResult(
+            repo_path=str(project),
+            graph=graph,
+            clusters={"core": ["src/main.py", "src/utils.py"]},
+            sub_clusters={"src/main.py": {"init": ["init"], "process": ["run", "process"]}},
+            file_count=2,
+            edge_count=1,
+            cluster_count=1,
+        )
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMW:
+            instance = MockMW.return_value
+            instance.process = AsyncMock(return_value=result)
+            result_invoke = runner.invoke(app, ["analyze", str(project)])
+            assert result_invoke.exit_code == 0
+            assert "Architecture Overview" in result_invoke.output
+            assert "src/main.py" in result_invoke.output
+            assert "src/utils.py" in result_invoke.output
+            assert "Functions" in result_invoke.output
+
+    def test_analyze_json_output(self, tmp_path):
+        import json as stdjson
+        from unittest.mock import AsyncMock, patch
+
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+        from archai.middleware.pipeline import PipelineResult
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        file_nodes = [
+            FileNode(path="src/main.py", imports=["src/utils.py"], functions=["run"]),
+        ]
+        graph = build_graph(file_nodes)
+        result = PipelineResult(
+            repo_path=str(project),
+            graph=graph,
+            clusters={},
+            file_count=1,
+            edge_count=0,
+            cluster_count=0,
+        )
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMW:
+            instance = MockMW.return_value
+            instance.process = AsyncMock(return_value=result)
+            result_invoke = runner.invoke(app, ["analyze", str(project), "--json"])
+            assert result_invoke.exit_code == 0
+            parsed = stdjson.loads(result_invoke.output)
+            assert parsed["file_count"] == 1
+
+    def test_analyze_error_pretty(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMW:
+            instance = MockMW.return_value
+            instance.process = AsyncMock(side_effect=RuntimeError("analysis boom"))
+            result_invoke = runner.invoke(app, ["analyze", str(project)])
+            assert result_invoke.exit_code == 1
+            assert "analysis boom" in result_invoke.output
+
+    def test_analyze_error_json(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMW:
+            instance = MockMW.return_value
+            instance.process = AsyncMock(side_effect=RuntimeError("analysis boom"))
+            result_invoke = runner.invoke(app, ["analyze", str(project), "--json"])
+            assert result_invoke.exit_code == 1
+            assert "analysis boom" in result_invoke.output
 
 
 class TestCheckCommand:
@@ -392,6 +728,34 @@ class TestCheckCommand:
             assert parsed["total_issues"] == 1
             assert parsed["issues"][0]["type"] == "circular_dependency"
 
+    def test_check_process_error_pretty(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware:
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock(side_effect=RuntimeError("check failed"))
+            result_invoke = runner.invoke(app, ["check", str(project)])
+            assert result_invoke.exit_code == 1
+            assert "check failed" in result_invoke.output
+
+    def test_check_process_error_json(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware:
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock(side_effect=RuntimeError("check failed"))
+            result_invoke = runner.invoke(app, ["check", str(project), "--json"])
+            assert result_invoke.exit_code == 1
+            assert "check failed" in result_invoke.output
+
 
 class TestCiCommand:
     """Tests for the ``ci`` command."""
@@ -469,6 +833,20 @@ class TestCiCommand:
             assert result_invoke.exit_code == 1
             assert '"healthy": false' in result_invoke.output
             assert '"total_issues": 1' in result_invoke.output
+
+    def test_ci_process_error(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware:
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock(side_effect=RuntimeError("ci failed"))
+            result_invoke = runner.invoke(app, ["ci", str(project)])
+            assert result_invoke.exit_code == 1
+            assert "ci failed" in result_invoke.output
 
 
 class TestInit:
@@ -551,6 +929,30 @@ class TestInit:
         config = json.loads(config_file.read_text())
         assert "other-server" in config["mcpServers"]
         assert "archai" in config["mcpServers"]
+
+
+class TestInitErrors:
+    """Tests for init command error handling."""
+
+    def test_init_bad_json(self, tmp_path):
+        """Existing config with invalid JSON should be handled gracefully."""
+        config_dir = tmp_path / ".opencode"
+        config_dir.mkdir()
+        config_file = config_dir / "mcp.json"
+        config_file.write_text("not valid json")
+        result = runner.invoke(app, ["init", str(tmp_path)])
+        assert result.exit_code == 0
+        config = json.loads(config_file.read_text())
+        assert "archai" in config["mcpServers"]
+
+    def test_init_non_dict_mcp_servers(self, tmp_path):
+        """If mcpServers is not a dict, should raise ValueError."""
+        config_dir = tmp_path / ".opencode"
+        config_dir.mkdir()
+        config_file = config_dir / "mcp.json"
+        config_file.write_text(json.dumps({"mcpServers": "not-a-dict"}))
+        result = runner.invoke(app, ["init", str(tmp_path)])
+        assert result.exit_code == 1
 
 
 class TestBlastCommand:
@@ -668,6 +1070,46 @@ class TestBlastCommand:
             assert "run" in result_invoke.output
             assert "src/caller.py" in result_invoke.output
             assert "src/helper.py" in result_invoke.output
+
+    def test_blast_error_pretty(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance.get_blast_radius = AsyncMock(side_effect=ValueError("file not in graph"))
+
+            result_invoke = runner.invoke(app, ["blast", "nope.py", str(project)])
+            assert result_invoke.exit_code == 1
+            assert "file not in graph" in result_invoke.output
+
+    def test_blast_error_json(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance.get_blast_radius = AsyncMock(side_effect=ValueError("file not in graph"))
+
+            result_invoke = runner.invoke(app, ["blast", "nope.py", str(project), "--json"])
+            assert result_invoke.exit_code == 1
+            assert "file not in graph" in result_invoke.output
 
 
 class TestValidateCommand:
@@ -828,6 +1270,93 @@ class TestValidateCommand:
             assert parsed["file_cluster"] == "core"
             assert "cluster_files" in parsed
 
+    def test_validate_cluster_deps_pretty(self, tmp_path):
+        """Test validate with multiple clusters showing cross-cluster deps."""
+        from unittest.mock import AsyncMock, patch
+
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+        from archai.middleware.pipeline import PipelineResult
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+        patch_file = tmp_path / "changes.patch"
+        patch_file.write_text(
+            "--- a/src/api/routes.py\n+++ b/src/api/routes.py\n@@ -1 +1 @@\n-old\n+new\n"
+        )
+
+        file_nodes = [
+            FileNode(path="src/api/routes.py", imports=["src/core/engine.py"]),
+            FileNode(path="src/core/engine.py", imports=[]),
+        ]
+        graph = build_graph(file_nodes)
+        pipeline_result = PipelineResult(
+            repo_path=str(project),
+            graph=graph,
+            clusters={"api": ["src/api/routes.py"], "core": ["src/core/engine.py"]},
+            file_count=2,
+            edge_count=1,
+            cluster_count=2,
+        )
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance._get_pipeline_result = AsyncMock(return_value=pipeline_result)
+
+            result_invoke = runner.invoke(app, ["validate", str(patch_file), str(project)])
+            assert result_invoke.exit_code == 0
+            assert "imports to" in result_invoke.output
+            assert "core" in result_invoke.output
+
+    def test_validate_patch_with_preamble_lines(self, tmp_path):
+        """Test patch with lines before the first file header (covers _parse_patch_file branch)."""
+        from unittest.mock import AsyncMock, patch
+
+        from archai.bootstrap.graph_builder import FileNode, build_graph
+        from archai.middleware.pipeline import PipelineResult
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+        patch_file = tmp_path / "changes.patch"
+        patch_file.write_text(
+            "some preamble line\n"
+            "--- a/src/main.py\n"
+            "+++ b/src/main.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+
+        file_nodes = [FileNode(path="src/main.py", imports=[])]
+        graph = build_graph(file_nodes)
+        pipeline_result = PipelineResult(
+            repo_path=str(project),
+            graph=graph,
+            clusters={"core": ["src/main.py"]},
+            file_count=1,
+            edge_count=0,
+            cluster_count=1,
+        )
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance._get_pipeline_result = AsyncMock(return_value=pipeline_result)
+
+            result_invoke = runner.invoke(app, ["validate", str(patch_file), str(project)])
+            assert result_invoke.exit_code == 0
+            assert "Structural Analysis" in result_invoke.output
+
 
 class TestFileCommand:
     """Tests for the ``file`` command."""
@@ -923,6 +1452,50 @@ class TestFileCommand:
             assert parsed["cluster"] == "Core"
             assert len(parsed["functions"]) == 1
             assert parsed["functions"][0]["name"] == "run"
+
+    def test_file_value_error_pretty(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance.get_file_detail = AsyncMock(
+                side_effect=ValueError("file not found in graph")
+            )
+
+            result_invoke = runner.invoke(app, ["file", "nope.py", str(project)])
+            assert result_invoke.exit_code == 1
+            assert "file not found in graph" in result_invoke.output
+
+    def test_file_value_error_json(self, tmp_path):
+        from unittest.mock import AsyncMock, patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with (
+            patch("archai.middleware.pipeline.ArchaiMiddleware") as MockMiddleware,
+            patch("archai.orchestrator.ArchaiOrchestrator") as MockOrch,
+        ):
+            instance = MockMiddleware.return_value
+            instance.process = AsyncMock()
+            mock_instance = MockOrch.return_value
+            mock_instance.get_file_detail = AsyncMock(
+                side_effect=ValueError("file not found in graph")
+            )
+
+            result_invoke = runner.invoke(app, ["file", "nope.py", str(project), "--json"])
+            assert result_invoke.exit_code == 1
+            assert "file not found in graph" in result_invoke.output
 
 
 class TestStateCommandErrors:
