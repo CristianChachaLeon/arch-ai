@@ -40,7 +40,7 @@ opencode .
 
 ## CLI Commands
 
-archai offers **12 commands** — one for every MCP tool plus utility commands:
+archai offers **10 commands** — one for every MCP tool plus utility commands:
 
 | Command | Description |
 |---------|-------------|
@@ -53,8 +53,6 @@ archai offers **12 commands** — one for every MCP tool plus utility commands:
 | `archai trace <feature>` | Trace a feature's call flow through the codebase |
 | `archai blast <path>` | Analyze the impact of changing a file |
 | `archai validate <patch>` | Structural analysis of proposed code changes |
-| `archai check` | Architecture design rule checks (cyclic deps, forbidden imports) |
-| `archai ci` | Run archai checks for CI/CD pipelines (with exit code) |
 | `archai mcp` | Alias for `archai serve` (deprecated) |
 
 All analysis commands support `--json` for machine-readable output.
