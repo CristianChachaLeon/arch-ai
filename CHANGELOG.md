@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.4 (2026-06-13)
+
+- **New CLI command `archai context <query>`** — wraps `get_architecture_context` MCP tool (Fase 1.1 del roadmap)
+- **Cleanup and fixes** — removed `plan` CLI (duplicaba `get_architecture_context`), refactored `validate` output, fixed misleading shared state dump in `trace`
+- **Coverage boost** — `cli/app.py` 76%→93%, `orchestrator/orchestrator.py` 79%→96%, overall 86%→94%
+- **49 new tests** (372→421 total)
+- Fixed `json.loads` unprotected call in `context` command (JSONDecodeError handling)
+- Fixed `__version__` in `__init__.py` from stale `0.1.0` to `0.4.4`
+
 ## 0.4.3 (2026-06-10)
 
 - **`archai state` now shows Writers/Readers** — wired existing `_extract_var_access()` through all 4 layers (c_handler → ParsedFile → FileNode → SharedVariable) to populate function names instead of dashes

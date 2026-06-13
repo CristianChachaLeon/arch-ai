@@ -941,19 +941,19 @@ class TestInitErrors:
         """Existing config with invalid JSON should be handled gracefully."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "mcp.json"
+        config_file = config_dir / "opencode.json"
         config_file.write_text("not valid json")
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
         config = json.loads(config_file.read_text())
-        assert "archai" in config["mcpServers"]
+        assert "archai" in config["mcp"]
 
-    def test_init_non_dict_mcp_servers(self, tmp_path):
-        """If mcpServers is not a dict, should raise ValueError."""
+    def test_init_non_dict_mcp(self, tmp_path):
+        """If mcp is not a dict, should raise ValueError."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "mcp.json"
-        config_file.write_text(json.dumps({"mcpServers": "not-a-dict"}))
+        config_file = config_dir / "opencode.json"
+        config_file.write_text(json.dumps({"mcp": "not-a-dict"}))
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 1
 
