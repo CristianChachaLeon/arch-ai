@@ -449,6 +449,92 @@ def state(
 
 
 @app.command()
+def context(
+    query: str = typer.Argument(..., help="Context query string"),
+    repo_path: str = typer.Argument(".", help="Path to the repository"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
+):
+    """Get architecture context for a query.
+
+    Analyzes the repository structure and returns cluster information,
+    file dependencies, and test files relevant to the query.
+    """
+    import asyncio
+    import json as stdjson
+
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+
+    from archai.mcp_server import get_architecture_context
+
+    console = Console()
+    repo = Path(repo_path).resolve()
+
+    if not repo.is_dir():
+        console.print(f"[red]✗ Error:[/red] {repo} is not a directory")
+        raise typer.Exit(code=1)
+
+    with console.status(f"[bold green]Getting context for '{query}'..."):
+        try:
+            result = asyncio.run(get_architecture_context(query, str(repo)))
+        except Exception as e:
+            if json_output:
+                console.print(stdjson.dumps({"error": str(e)}))
+            else:
+                console.print(f"\n[red]✗ Error:[/red] {e}")
+            raise typer.Exit(code=1)
+
+    data = stdjson.loads(result)
+
+    if "error" in data:
+        if json_output:
+            console.print(result)
+        else:
+            console.print(f"\n[red]✗ Error:[/red] {data['error']}")
+        raise typer.Exit(code=1)
+
+    if json_output:
+        console.print(result)
+        return
+
+    console.print()
+    console.print(
+        Panel(
+            f"[bold]Focus cluster:[/bold] {data['focus_cluster']}\n"
+            f"[bold]Focus files:[/bold] {len(data['focus_files'])}\n"
+            f"[bold]Focus reasoning:[/bold] {data['focus_reasoning']}\n"
+            f"[bold]Total clusters:[/bold] {data['metadata']['cluster_count']}\n"
+            f"[bold]Test files:[/bold] {len(data['test_files'])}",
+            title="[bold]🔍 Architecture Context[/bold]",
+        )
+    )
+    console.print()
+
+    if data["focus_files"]:
+        console.print(f"[bold]📁 Focus Files ({len(data['focus_files'])})[/bold]")
+        for f in data["focus_files"]:
+            console.print(f"  {f}")
+        console.print()
+
+    if data["cluster_edges"]:
+        console.print(f"[bold]🔗 Cluster Edges ({len(data['cluster_edges'])})[/bold]")
+        edge_table = Table(show_header=True, header_style="bold magenta")
+        edge_table.add_column("From", style="cyan")
+        edge_table.add_column("To", style="green")
+        for edge in data["cluster_edges"]:
+            edge_table.add_row(edge["from_cluster"], edge["to_cluster"])
+        console.print(edge_table)
+        console.print()
+
+    if data["test_files"]:
+        console.print(f"[bold]🧪 Test Files ({len(data['test_files'])})[/bold]")
+        for f in data["test_files"]:
+            console.print(f"  {f}")
+        console.print()
+
+
+@app.command()
 def trace(
     entry_point: str = typer.Argument(..., help="Function name to start tracing from"),
     repo_path: str = typer.Argument(".", help="Path to the repository"),

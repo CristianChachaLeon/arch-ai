@@ -184,6 +184,122 @@ class TestStateCommand:
             assert "counter" not in result_invoke.output
 
 
+class TestContextCommand:
+    """Tests for the ``context`` command."""
+
+    def test_context_help(self):
+        result = runner.invoke(app, ["context", "--help"])
+        assert result.exit_code == 0
+        plain = _ANSI_RE.sub("", result.output)
+        assert "Get architecture context" in plain
+        assert "QUERY" in plain
+        assert "--json" in plain
+
+    def test_context_nonexistent_dir(self, tmp_path):
+        result = runner.invoke(app, ["context", "auth", str(tmp_path / "nonexistent")])
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    def test_context_pretty_output(self, tmp_path):
+        import json as stdjson
+        from unittest.mock import patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        mock_json = stdjson.dumps(
+            {
+                "focus_cluster": "core",
+                "focus_files": ["src/main.py", "src/utils.py"],
+                "focus_reasoning": "matches auth-related files",
+                "all_clusters": {
+                    "core": ["src/main.py", "src/utils.py"],
+                    "tests": ["tests/test_main.py"],
+                },
+                "cluster_edges": [
+                    {"from_cluster": "core", "to_cluster": "tests"},
+                ],
+                "file_dependencies": {"src/main.py": ["src/utils.py"]},
+                "test_files": ["tests/test_main.py"],
+                "sub_clusters": {},
+                "metadata": {"source": "orchestrator", "cluster_count": 2},
+            }
+        )
+
+        with patch("archai.mcp_server.get_architecture_context") as mock_func:
+            mock_func.return_value = mock_json
+
+            result_invoke = runner.invoke(app, ["context", "auth", str(project)])
+            assert result_invoke.exit_code == 0
+            assert "core" in result_invoke.output
+            assert "src/main.py" in result_invoke.output
+            assert "src/utils.py" in result_invoke.output
+            assert "tests/test_main.py" in result_invoke.output
+            assert "auth" in result_invoke.output or "matches" in result_invoke.output
+
+    def test_context_json_output(self, tmp_path):
+        import json as stdjson
+        from unittest.mock import patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        mock_json = stdjson.dumps(
+            {
+                "focus_cluster": "core",
+                "focus_files": ["src/main.py"],
+                "focus_reasoning": "matches query",
+                "all_clusters": {"core": ["src/main.py"]},
+                "cluster_edges": [],
+                "file_dependencies": {},
+                "test_files": [],
+                "sub_clusters": {},
+                "metadata": {"source": "orchestrator", "cluster_count": 1},
+            }
+        )
+
+        with patch("archai.mcp_server.get_architecture_context") as mock_func:
+            mock_func.return_value = mock_json
+
+            result_invoke = runner.invoke(app, ["context", "auth", str(project), "--json"])
+            assert result_invoke.exit_code == 0
+            parsed = stdjson.loads(result_invoke.output)
+            assert parsed["focus_cluster"] == "core"
+            assert len(parsed["focus_files"]) == 1
+            assert parsed["focus_files"][0] == "src/main.py"
+
+    def test_context_process_error(self, tmp_path):
+        from unittest.mock import patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.mcp_server.get_architecture_context") as mock_func:
+            mock_func.side_effect = RuntimeError("context error")
+
+            result_invoke = runner.invoke(app, ["context", "auth", str(project)])
+            assert result_invoke.exit_code == 1
+            assert "Error" in result_invoke.output
+            assert "context error" in result_invoke.output
+
+    def test_context_json_error(self, tmp_path):
+        from unittest.mock import patch
+
+        project = tmp_path / "myproject"
+        project.mkdir()
+        (project / "Makefile").touch()
+
+        with patch("archai.mcp_server.get_architecture_context") as mock_func:
+            mock_func.side_effect = RuntimeError("context error")
+
+            result_invoke = runner.invoke(app, ["context", "auth", str(project), "--json"])
+            assert result_invoke.exit_code == 1
+            assert "context error" in result_invoke.output
+
+
 class TestTraceCommand:
     """Tests for the ``trace`` command."""
 
