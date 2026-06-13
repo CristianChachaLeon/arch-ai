@@ -5,7 +5,6 @@ Provides commands for MCP server integration and project initialization.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import typer
@@ -43,23 +42,60 @@ def serve():
     mcp_app.run(transport="stdio")
 
 
+def _fmt_toml_value(v: bool | str | list) -> str:
+    import json
+
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, str):
+        return json.dumps(v)
+    if isinstance(v, list):
+        parts = ", ".join(_fmt_toml_value(x) for x in v)
+        return f"[{parts}]"
+    return str(v)
+
+
+def _to_toml(d: dict, prefix: str = "") -> str:
+    lines: list[str] = []
+    for k, v in d.items():
+        if isinstance(v, dict):
+            has_subtables = any(isinstance(x, dict) for x in v.values())
+            full_key = f"{prefix}.{k}" if prefix else k
+            if has_subtables:
+                sub = _to_toml(v, full_key)
+                if sub:
+                    lines.append(sub)
+            else:
+                lines.append(f"[{full_key}]")
+                for sk, sv in v.items():
+                    lines.append(f"{sk} = {_fmt_toml_value(sv)}")
+        else:
+            if not lines and prefix:
+                lines.append(f"[{prefix}]")
+            lines.append(f"{k} = {_fmt_toml_value(v)}")
+    return "\n".join(lines) + "\n"
+
+
 @app.command()
 def init(
     project_dir: str = typer.Argument(".", help="Project directory to configure"),
 ):
     """Initialize archai in a project for OpenCode MCP integration.
 
-    Creates .opencode/opencode.json so OpenCode can discover and call
+    Creates .opencode/opencode.toml so OpenCode can discover and call
     archai's architecture tools in this project.
     """
+    import tomllib
+
     project_path = Path(project_dir).resolve()
     config_dir = project_path / ".opencode"
-    config_file = config_dir / "opencode.json"
+    config_file = config_dir / "opencode.toml"
 
     # Warn about old config files that OpenCode ignores
     old_paths = [
         project_path / ".opencode.json",
         project_path / ".opencode" / "mcp.json",
+        project_path / ".opencode" / "opencode.json",
     ]
     for old in old_paths:
         if old.exists():
@@ -78,14 +114,14 @@ def init(
     existing = {}
     if config_file.exists():
         try:
-            existing = json.loads(config_file.read_text())
-        except (json.JSONDecodeError, OSError):
+            existing = tomllib.loads(config_file.read_text())
+        except (tomllib.TOMLDecodeError, OSError):
             existing = {}
 
     mcp_servers = existing.get("mcp", {})
     if not isinstance(mcp_servers, dict):
         raise ValueError(
-            f"Invalid type for 'mcp' in .opencode/opencode.json: expected dict, got {type(mcp_servers).__name__} ({mcp_servers!r})"
+            f"Invalid type for 'mcp' in .opencode/opencode.toml: expected dict, got {type(mcp_servers).__name__} ({mcp_servers!r})"
         )
 
     if "archai" in mcp_servers:
@@ -103,12 +139,10 @@ def init(
         "enabled": True,
     }
 
-    existing["$schema"] = "https://opencode.ai/config.json"
-
-    config_file.write_text(json.dumps(existing, indent=2) + "\n")
+    config_file.write_text(_to_toml(existing))
 
     typer.echo(
-        typer.style("\u2713 Configured archai MCP server in .opencode/opencode.json", fg="green")
+        typer.style("\u2713 Configured archai MCP server in .opencode/opencode.toml", fg="green")
     )
 
 

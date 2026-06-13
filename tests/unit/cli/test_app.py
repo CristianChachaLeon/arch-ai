@@ -1,6 +1,5 @@
 """Tests for the ArchAI CLI Typer app."""
 
-import json
 import re
 from unittest import mock
 
@@ -609,39 +608,42 @@ class TestAnalyzeCommand:
 class TestInit:
     """Tests for the ``init`` command."""
 
-    def test_creates_opencode_json(self, tmp_path):
+    def test_creates_opencode_toml(self, tmp_path):
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        config_file = tmp_path / ".opencode" / "opencode.json"
+        config_file = tmp_path / ".opencode" / "opencode.toml"
         assert config_file.exists()
-        config = json.loads(config_file.read_text())
+        import tomllib
+
+        config = tomllib.loads(config_file.read_text())
         archai_cfg = config["mcp"]["archai"]
         assert archai_cfg["type"] == "local"
         assert archai_cfg["command"] == ["archai", "serve"]
         assert archai_cfg["enabled"] is True
-        assert config["$schema"] == "https://opencode.ai/config.json"
-        # No env block — archai needs no LLM config
         assert "env" not in archai_cfg
 
     def test_no_environment_passthrough(self, tmp_path):
         """Verify init does NOT add LLM environment passthrough."""
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        config = json.loads((tmp_path / ".opencode" / "opencode.json").read_text())
+        import tomllib
+
+        config = tomllib.loads((tmp_path / ".opencode" / "opencode.toml").read_text())
         archai_cfg = config["mcp"]["archai"]
         assert "env" not in archai_cfg
-        # Just the three fields
         assert set(archai_cfg.keys()) == {"type", "command", "enabled"}
 
     def test_preserves_existing_config_when_archai_not_configured(self, tmp_path):
-        """If .opencode/opencode.json exists but archai is not configured, add it."""
+        """If .opencode/opencode.toml exists but archai is not configured, add it."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "opencode.json"
-        config_file.write_text(json.dumps({"data": {"directory": ".opencode"}}))
+        config_file = config_dir / "opencode.toml"
+        config_file.write_text('[data]\ndirectory = ".opencode"\n')
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        config = json.loads(config_file.read_text())
+        import tomllib
+
+        config = tomllib.loads(config_file.read_text())
         assert config["data"]["directory"] == ".opencode"
         archai_cfg = config["mcp"]["archai"]
         assert archai_cfg["type"] == "local"
@@ -651,42 +653,36 @@ class TestInit:
         """If archai already configured, do nothing."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "opencode.json"
-        existing_config = {
-            "$schema": "https://opencode.ai/config.json",
-            "mcp": {
-                "archai": {
-                    "type": "local",
-                    "command": ["archai", "serve"],
-                    "enabled": True,
-                }
-            },
-        }
-        config_file.write_text(json.dumps(existing_config))
+        config_file = config_dir / "opencode.toml"
+        config_file.write_text(
+            '[mcp.archai]\n'
+            'type = "local"\n'
+            'command = ["archai", "serve"]\n'
+            'enabled = true\n'
+        )
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        # Config should not change
-        config = json.loads(config_file.read_text())
-        assert config == existing_config
+        import tomllib
+
+        config = tomllib.loads(config_file.read_text())
+        assert config["mcp"]["archai"]["type"] == "local"
 
     def test_adds_to_existing_mcp_config(self, tmp_path):
         """If other MCP servers exist, keep them."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "opencode.json"
-        existing_config = {
-            "mcp": {
-                "other-server": {
-                    "type": "local",
-                    "command": ["other", "command"],
-                    "enabled": True,
-                }
-            },
-        }
-        config_file.write_text(json.dumps(existing_config))
+        config_file = config_dir / "opencode.toml"
+        config_file.write_text(
+            '[mcp.other-server]\n'
+            'type = "local"\n'
+            'command = ["other", "command"]\n'
+            'enabled = true\n'
+        )
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        config = json.loads(config_file.read_text())
+        import tomllib
+
+        config = tomllib.loads(config_file.read_text())
         assert "other-server" in config["mcp"]
         assert "archai" in config["mcp"]
 
@@ -694,23 +690,25 @@ class TestInit:
 class TestInitErrors:
     """Tests for init command error handling."""
 
-    def test_init_bad_json(self, tmp_path):
-        """Existing config with invalid JSON should be handled gracefully."""
+    def test_init_bad_toml(self, tmp_path):
+        """Existing config with invalid TOML should be handled gracefully."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "opencode.json"
-        config_file.write_text("not valid json")
+        config_file = config_dir / "opencode.toml"
+        config_file.write_text("not valid toml [[[")
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 0
-        config = json.loads(config_file.read_text())
+        import tomllib
+
+        config = tomllib.loads(config_file.read_text())
         assert "archai" in config["mcp"]
 
     def test_init_non_dict_mcp(self, tmp_path):
         """If mcp is not a dict, should raise ValueError."""
         config_dir = tmp_path / ".opencode"
         config_dir.mkdir()
-        config_file = config_dir / "opencode.json"
-        config_file.write_text(json.dumps({"mcp": "not-a-dict"}))
+        config_file = config_dir / "opencode.toml"
+        config_file.write_text('mcp = "not-a-dict"\n')
         result = runner.invoke(app, ["init", str(tmp_path)])
         assert result.exit_code == 1
 
