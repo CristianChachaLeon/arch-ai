@@ -485,7 +485,16 @@ def context(
                 console.print(f"\n[red]✗ Error:[/red] {e}")
             raise typer.Exit(code=1)
 
-    data = stdjson.loads(result)
+    try:
+        data = stdjson.loads(result)
+    except stdjson.JSONDecodeError:
+        if json_output:
+            console.print(stdjson.dumps({"error": "invalid JSON from MCP tool"}))
+        else:
+            console.print(
+                "\n[red]✗ Error:[/red] Invalid JSON response from architecture context tool"
+            )
+        raise typer.Exit(code=1)
 
     if "error" in data:
         if json_output:
