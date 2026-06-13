@@ -134,6 +134,7 @@ def analyze(
     sub_clusters: bool = typer.Option(
         True, "--sub-clusters/--no-sub-clusters", help="Show intra-file sub-clusters"
     ),
+    force: bool = typer.Option(False, "--force", help="Force re-analysis, bypassing all caches"),
 ):
     """Analyze a repository and show its architecture."""
     import asyncio
@@ -145,6 +146,7 @@ def analyze(
     from rich.tree import Tree
 
     from archai.middleware.pipeline import ArchaiMiddleware
+    from archai.orchestrator import ArchaiOrchestrator
 
     console = Console()
     repo = Path(repo_path).resolve()
@@ -155,7 +157,9 @@ def analyze(
 
     with console.status(f"[bold green]Analyzing {repo.name}..."):
         try:
-            result = asyncio.run(ArchaiMiddleware().process(str(repo)))
+            middleware = ArchaiMiddleware()
+            orch = ArchaiOrchestrator(middleware)
+            result = asyncio.run(orch._get_pipeline_result(str(repo), force=force))
         except Exception as e:
             if json_output:
                 console.print(stdjson.dumps({"error": str(e)}))

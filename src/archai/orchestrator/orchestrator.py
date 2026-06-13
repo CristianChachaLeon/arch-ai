@@ -577,7 +577,7 @@ class ArchaiOrchestrator:
             if repo_path in self._inflight:
                 self._inflight[repo_path].cancel()
                 self._inflight.pop(repo_path, None)
-            pipeline_result = await self.middleware.process(repo_path)
+            pipeline_result = await self.middleware.process(repo_path, force=force)
             self._cache[repo_path] = pipeline_result
             return pipeline_result
 
@@ -586,7 +586,7 @@ class ArchaiOrchestrator:
         if repo_path in self._inflight:
             return await self._inflight[repo_path]
 
-        task = asyncio.ensure_future(self.middleware.process(repo_path))
+        task = asyncio.ensure_future(self.middleware.process(repo_path, force=force))
         self._inflight[repo_path] = task
         try:
             pipeline_result = await task
