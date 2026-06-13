@@ -7,6 +7,7 @@ pipeline with focus resolution to produce architecture-aware context packets.
 import asyncio
 import re
 from collections import deque
+from pathlib import Path
 
 import networkx
 
@@ -312,6 +313,32 @@ class ArchaiOrchestrator:
         direct_dependencies = sorted(graph.successors(file_path))
         transitive = _get_transitive_dependents(graph, file_path, max_depth=depth)
 
+        # C/C++ .c ↔ .h mapping: trace blast radius through headers
+        header_map = pipeline_result.header_map
+        implemented_headers: list[str] = []
+        implemented_by: list[str] = []
+
+        if file_path in header_map:
+            counterpart = header_map[file_path]
+            suffix = Path(file_path).suffix.lower()
+            c_extensions = frozenset({".c", ".cpp", ".cc", ".cxx"})
+            h_extensions = frozenset({".h", ".hpp", ".hh"})
+
+            if suffix in c_extensions:
+                # .c file → show its .h, and add .h dependents
+                implemented_headers = [counterpart]
+                if counterpart in graph:
+                    h_dependents = set(graph.predecessors(counterpart))
+                    for h_dep in h_dependents:
+                        if h_dep not in direct_dependents and h_dep != file_path:
+                            direct_dependents.append(h_dep)
+                    direct_dependents.sort()
+                    transitive_h = _get_transitive_dependents(graph, counterpart, max_depth=depth)
+                    transitive |= transitive_h
+            elif suffix in h_extensions:
+                # .h file → show its .c implementation
+                implemented_by = [counterpart]
+
         # Build file to subsystem name mapping
         file_to_subsystem = _build_file_to_subsystem(pipeline_result)
 
@@ -328,6 +355,8 @@ class ArchaiOrchestrator:
             direct_dependencies=direct_dependencies,
             transitive_dependents=sorted(transitive),
             subsystems_affected=dict(sorted(subsystems_affected.items())),
+            implemented_headers=implemented_headers,
+            implemented_by=implemented_by,
         )
 
     async def get_file_detail(self, repo_path: str, file_path: str) -> FileDetailResponse:
